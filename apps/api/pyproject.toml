@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docintel-api"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "pydantic-settings>=2.7,<3",
+  "sqlalchemy[asyncio]>=2.0.38,<2.1", "asyncpg>=0.30,<1", "alembic>=1.14,<2",
+  "pgvector>=0.3.6,<1", "python-multipart>=0.0.20,<1", "pymupdf>=1.25,<2",
+  "python-docx>=1.1.2,<2", "openai>=1.68,<3", "httpx>=0.28,<1"
+]
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1", "mypy>=1.15,<2"]
+[tool.setuptools.packages.find]
+include = ["app*"]
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+[[tool.mypy.overrides]]
+module = ["pgvector.*", "pymupdf.*"]
+ignore_missing_imports = true
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["integration: requires TEST_DATABASE_URL pointing to disposable pgvector database"]
