@@ -44,7 +44,7 @@ Each decision is a Phase 1 choice with a specific replacement trigger.
 
 ## 5. Separate embedding and generation protocols
 
-**Decision:** Business logic calls EmbeddingService and GenerationProvider; SDK code is confined to the OpenAI adapter.
+**Decision:** Business logic calls EmbeddingService and GenerationProvider; HTTP/SDK details stay in Ollama and OpenAI adapters.
 
 **Why:** Alternate generation providers do not need to reimplement storage/retrieval.
 
@@ -62,15 +62,15 @@ Each decision is a Phase 1 choice with a specific replacement trigger.
 
 **Tradeoffs:** Identity validation cannot prove claim support. Full retrieved passages are stored as citation snapshots for auditability, increasing historical data retention.
 
-## 7. No simulated production AI
+## 7. Local AI as the default
 
-**Decision:** No credential means actionable failure for indexing/generation, but normal startup and empty-context abstention. Deterministic providers exist only in tests.
+**Decision:** Run `qwen3.5:4b` for generation and `qwen3-embedding:0.6b` at 1024 dimensions through Ollama. OpenAI remains optional. Deterministic providers exist only in tests.
 
-**Why:** Fake embeddings would make the running application appear to do semantic search when it does not.
+**Why:** The application must work without paid APIs and keep document text on the machine. The 3.4 GB Q4 generation model plus a 639 MB embedding model are realistic for the detected RTX 3060 Laptop GPU with 6 GB VRAM. Qwen3.5 is multilingual and the dedicated embedding model supports query instructions.
 
-**Alternatives:** Hash vectors as an offline demo, local embedding model.
+**Alternatives:** Qwen3.5 9B, which is too tight for 6 GB VRAM once context memory is included; cloud-only OpenAI; fake hash vectors.
 
-**Tradeoffs:** Real document QA requires an API key and paid calls. A future local model adapter is legitimate if installed and evaluated.
+**Tradeoffs:** A 4B model is weaker than large cloud models and has not yet been evaluated on a labeled corpus. Ollama must run on the host. An 8192-token context cap favors stability over the model's maximum advertised context. Switching embedding dimensions requires reindexing.
 
 ## 8. Workspace scope without authentication
 

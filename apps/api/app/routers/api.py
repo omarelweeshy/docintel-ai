@@ -11,7 +11,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.core.errors import AppError
 from app.models.entities import Conversation, Document, Message, Workspace
-from app.providers.openai import OpenAIProvider
+from app.providers.interfaces import AIProvider
 from app.rag.chunking import WordChunker
 from app.rag.pipeline import RAGPipeline
 from app.rag.retrieval import VectorRetriever
@@ -38,11 +38,11 @@ Config = Annotated[Settings, Depends(get_settings)]
 logger = logging.getLogger(__name__)
 
 
-def get_provider(request: Request) -> OpenAIProvider:
+def get_provider(request: Request) -> AIProvider:
     return request.app.state.provider  # type: ignore[no-any-return]
 
 
-Provider = Annotated[OpenAIProvider, Depends(get_provider)]
+Provider = Annotated[AIProvider, Depends(get_provider)]
 
 
 @router.get("/health", tags=["operations"])
@@ -57,11 +57,13 @@ async def ready(session: Session) -> dict[str, str]:
 
 
 @router.get("/config", tags=["operations"])
-async def public_config(settings: Config) -> dict[str, int | bool]:
+async def public_config(settings: Config) -> dict[str, int | bool | str]:
     return {
         "max_upload_bytes": settings.max_upload_bytes,
         "max_question_chars": settings.max_question_chars,
-        "ai_configured": bool(settings.openai_api_key.get_secret_value()),
+        "ai_provider": settings.ai_provider,
+        "ai_configured": settings.ai_provider == "ollama"
+        or bool(settings.openai_api_key.get_secret_value()),
     }
 
 

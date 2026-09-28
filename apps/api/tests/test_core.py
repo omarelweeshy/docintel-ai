@@ -2,6 +2,7 @@ import io
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import httpx
 import pymupdf
 import pytest
 from docx import Document
@@ -177,6 +178,43 @@ async def test_no_key_provider_fails_without_network():
         await provider.embed(["hello"])
     with pytest.raises(ProviderError, match="OPENAI_API_KEY"):
         await provider.generate("system", "user")
+    await provider.close()
+
+
+async def test_ollama_provider_uses_query_instruction_and_validates_json():
+    from app.providers.ollama import OllamaProvider
+
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/embed":
+            return httpx.Response(200, json={"embeddings": [[1.0] + [0.0] * 1023]})
+        return httpx.Response(
+            200,
+            json={
+                "message": {
+                    "content": '{"answer":"30 days","source_ids":["abc"],'
+                    '"insufficient_context":false}'
+                }
+            },
+        )
+
+    provider = OllamaProvider(Settings())
+    await provider.client.aclose()
+    provider.client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ollama.test"
+    )
+    vectors = await provider.embed(["retention"], "query")
+    answer = await provider.generate("system", "user")
+    assert len(vectors[0]) == 1024
+    assert answer.answer == "30 days"
+    embed_body = __import__("json").loads(requests[0].content)
+    chat_body = __import__("json").loads(requests[1].content)
+    assert embed_body["input"][0].startswith("Instruct:")
+    assert embed_body["dimensions"] == 1024
+    assert chat_body["format"]["type"] == "object"
+    assert chat_body["think"] is False
     await provider.close()
 
 

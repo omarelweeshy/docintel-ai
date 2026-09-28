@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,11 +10,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     database_url: str = "postgresql+asyncpg://docintel:docintel@localhost:5432/docintel"
     storage_dir: Path = Path("storage")
+    ai_provider: Literal["ollama", "openai"] = "ollama"
     openai_api_key: SecretStr = SecretStr("")
-    chat_model: str = "gpt-4.1-mini"
-    embedding_model: str = "text-embedding-3-small"
+    ollama_base_url: str = "http://localhost:11434"
+    chat_model: str = "qwen3.5:4b"
+    embedding_model: str = "qwen3-embedding:0.6b"
     # A schema migration and full reindex are required to change dimensionality.
-    embedding_dimensions: int = Field(default=1536, ge=1536, le=1536)
+    embedding_dimensions: int = Field(default=1024, ge=256, le=4096)
+    ollama_num_ctx: int = Field(default=8192, ge=2048, le=32768)
     cors_origins: list[str] = ["http://localhost:3000"]
     max_upload_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
     max_document_chars: int = Field(default=2_000_000, gt=0)

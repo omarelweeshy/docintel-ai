@@ -23,7 +23,7 @@ flowchart LR
 
 - Workspace: UUID, name, timestamp. Collection and workspace mean the same thing in V1.
 - Document: workspace FK, original display name, opaque storage name, MIME, bytes, SHA-256, state, page count, chunk count, embedding model, timestamps, safe error text.
-- DocumentChunk: document FK with ON DELETE CASCADE, sequence, optional page, text, metadata JSONB, vector(1536), timestamp.
+- DocumentChunk: document FK with ON DELETE CASCADE, sequence, optional page, text, metadata JSONB, vector(1024), timestamp.
 - Conversation: workspace FK, title, timestamp.
 - Message: conversation FK with cascade, role, content, citation JSONB snapshots, timestamp.
 
@@ -68,7 +68,7 @@ Citations contain answer-time snapshots so source inspection remains understanda
 ## Extension points
 
 - GenerationProvider: add Anthropic adapter; keep ModelAnswer validation in the pipeline.
-- EmbeddingProvider / EmbeddingService: alternate embedding engines with dimension/model migration.
+- EmbeddingProvider / EmbeddingService: local Ollama or optional OpenAI engines with an explicit query/document purpose.
 - Retriever: BM25, hybrid fusion or reranking without changing the chat API.
 - Chunker: experiment without changing parsers or provider adapters.
 - OCRProvider: extract missing PDF page text; currently no concrete OCR implementation.

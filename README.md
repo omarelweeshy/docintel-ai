@@ -9,12 +9,12 @@ This Phase 1 implementation focuses on an understandable, tested RAG foundation.
 - Create/select workspaces; dashboard counts and recent documents.
 - Validate uploads, SHA-256 duplicate detection per workspace, generated storage names.
 - Parse selectable-text PDFs, DOCX body paragraphs/tables, and UTF-8 TXT.
-- Page-preserving overlapping chunks, OpenAI embeddings, PostgreSQL cosine search.
+- Page-preserving chunks, local Qwen embeddings, PostgreSQL cosine search.
 - Workspace-scoped retrieval, optional document filter, configurable top-k.
 - Structured grounded responses; source identifiers validated against retrieved passages.
 - Persist conversations and citation snapshots; inspect filename/page/passage.
 - Delete originals and database chunks/vectors; delete conversations separately.
-- Provider failures become useful errors. Missing credentials do not prevent startup.
+- Local Ollama is the default; OpenAI remains an optional provider adapter.
 - Docker Compose, Alembic, Ruff, strict mypy/TypeScript, automated tests and GitHub Actions.
 
 No OCR implementation, autonomous agents, LangGraph, hybrid retrieval, reranking, evaluation framework, streaming, authentication, or Azure deployment is claimed.
@@ -30,19 +30,25 @@ Next.js 15 / React / TanStack Query
  PDF/DOCX     |         /          \
  parsing   PostgreSQL  Retriever   GenerationProvider
  chunking   + pgvector    |            |
-      \______ EmbeddingService _____ OpenAI adapters
+      \______ EmbeddingService _____ Ollama / OpenAI adapters
 ```
 
 One backend service. Business logic depends on provider protocols, not OpenAI SDK objects. The database is the source of truth for metadata, status, vectors, and conversations. Read [ARCHITECTURE](docs/ARCHITECTURE.md), [DECISIONS](docs/DECISIONS.md), and [SECURITY](docs/SECURITY.md) before changing boundaries.
 
 ## Quick start with Docker
 
-Requires Docker Engine/Desktop with Compose v2. From the repository root:
+Requires Docker Engine/Desktop with Compose v2 and [Ollama for Windows](https://docs.ollama.com/windows).
+Install Ollama, then pull the two local models:
+
+```powershell
+ollama pull qwen3.5:4b
+ollama pull qwen3-embedding:0.6b
+```
+
+From the repository root:
 
 ```sh
 cp .env.example .env
-# Optional for startup, required for real indexing/answers:
-# Set OPENAI_API_KEY in .env using your editor.
 docker compose up --build
 ```
 
@@ -54,7 +60,9 @@ PowerShell uses `Copy-Item .env.example .env` instead of `cp`.
 
 Create a workspace using **+**, upload a small text-based document, and ask a standalone question. Open a citation card to inspect the exact supplied passage.
 
-Without a key, the UI and API start. Uploads retain metadata and a failed status with a configuration error. Empty-workspace questions return insufficient evidence without calling OpenAI. There is no fake AI mode in the application.
+Ollama runs on the host GPU and the API container reaches it through `host.docker.internal`.
+If Ollama or either model is unavailable, uploads retain metadata with a failed status and an
+actionable error. Empty-workspace questions abstain without loading a model. There is no fake AI mode.
 
 Compose binds all published ports to localhost. Data persists in named volumes. Stop with `docker compose down`; **do not add `-v` unless you intend to erase the local database and document volumes**. Changing the database password does not update credentials in an existing database volume.
 
@@ -98,10 +106,13 @@ See [.env.example](.env.example) for every setting.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| OPENAI_API_KEY | empty | Server-only provider credential |
-| CHAT_MODEL | gpt-4.1-mini | Structured-output-capable OpenAI model |
-| EMBEDDING_MODEL | text-embedding-3-small | Persisted per document; changes require reindexing |
-| EMBEDDING_DIMENSIONS | 1536 | Fixed schema contract, not a hot-swappable setting |
+| AI_PROVIDER | ollama | `ollama` for private local inference; `openai` remains optional |
+| OLLAMA_BASE_URL | localhost:11434 | Compose overrides this to the host gateway |
+| CHAT_MODEL | qwen3.5:4b | Local grounded-answer model |
+| EMBEDDING_MODEL | qwen3-embedding:0.6b | Local retrieval model; changes require reindexing |
+| EMBEDDING_DIMENSIONS | 1024 | Fixed pgvector schema contract |
+| OLLAMA_NUM_CTX | 8192 | Context cap chosen for a 6 GB laptop GPU |
+| OPENAI_API_KEY | empty | Required only when `AI_PROVIDER=openai` |
 | DATABASE_URL | local PostgreSQL URL | Async SQLAlchemy connection |
 | STORAGE_DIR | storage | Original-file directory; Compose uses /data |
 | CORS_ORIGINS | localhost:3000 JSON list | Explicit allowed browser origins |
@@ -114,7 +125,10 @@ See [.env.example](.env.example) for every setting.
 | PROVIDER_TIMEOUT_SECONDS | 60 | Per provider call; one SDK retry |
 | NEXT_PUBLIC_API_URL | localhost:8000 | Public browser endpoint, never a secret |
 
-Use an embedding model supporting the configured dimensions; do not change models on an existing index without reindexing. Delete and reupload is the V1 reindex procedure. Model availability depends on your account. Real provider behavior was not tested with paid calls.
+Use an embedding model supporting the configured dimensions. Delete and reupload is the V1
+reindex procedure. The migration preserves the former 1536-dimension vectors in a legacy column;
+the retrieval model guard refuses to mix models. Local model quality and latency still need
+evaluation on a labeled DocIntel dataset.
 
 ## Tests and quality gates
 
@@ -180,7 +194,7 @@ Uploads return **201** for a created record; inspect `status` even on success. P
 - Original/index deletion retains historical answers and citation snapshots. Delete conversations separately for those copies.
 - No malware scanning, quotas, rate limiting, parser sandbox, full observability, or retention policy.
 - Document-filter picker shows up to 100 recent documents; workspace-wide retrieval covers all ready documents.
-- No paid-provider quality benchmark or live OpenAI verification.
+- No labeled quality benchmark yet; local answer speed varies with GPU power and document size.
 
 ## Roadmap
 

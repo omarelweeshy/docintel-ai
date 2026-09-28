@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.database import engine
 from app.core.errors import AppError
 from app.core.middleware import JsonFormatter, RequestMiddleware
-from app.providers.openai import OpenAIProvider
+from app.providers.factory import create_provider
 from app.routers.api import router
 
 settings = get_settings()
@@ -26,7 +26,7 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    provider = OpenAIProvider(settings)
+    provider = create_provider(settings)
     app.state.provider = provider
     yield
     await provider.close()

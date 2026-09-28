@@ -1,3 +1,5 @@
+from typing import Literal
+
 from openai import AsyncOpenAI
 
 from app.core.config import Settings
@@ -27,7 +29,9 @@ class OpenAIProvider:
         if self.client:
             await self.client.close()
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(
+        self, texts: list[str], purpose: Literal["document", "query"] = "document"
+    ) -> list[list[float]]:
         client = self._client()
         vectors: list[list[float]] = []
         try:

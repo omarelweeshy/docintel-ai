@@ -54,7 +54,10 @@ class DocumentChunk(Base):
     page_number: Mapped[int | None]
     text: Mapped[str] = mapped_column(Text)
     chunk_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536))
+    # Nullable only to preserve legacy 1536-dimension rows during the local-model migration.
+    # Every newly indexed chunk receives a non-null vector in the ingestion transaction.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    embedding_legacy_1536: Mapped[list[float] | None] = mapped_column(Vector(1536), deferred=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

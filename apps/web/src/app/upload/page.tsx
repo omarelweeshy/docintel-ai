@@ -78,8 +78,14 @@ export default function UploadPage() {
       />
       {config.data && !config.data.ai_configured && (
         <div className="notice">
-          AI processing is not configured. Set OPENAI_API_KEY on the API server
+          AI processing is not configured. Set the selected provider credentials
           before uploading; otherwise documents will be marked failed.
+        </div>
+      )}
+      {config.data?.ai_provider === "ollama" && (
+        <div className="notice">
+          Local AI mode is selected. Ollama must be running with the configured
+          chat and embedding models before documents can be indexed.
         </div>
       )}
       {!workspaceId ? (

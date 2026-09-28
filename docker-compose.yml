@@ -19,9 +19,13 @@ services:
     build: ./apps/api
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-docintel}:${POSTGRES_PASSWORD:-docintel}@db:5432/${POSTGRES_DB:-docintel}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      CHAT_MODEL: ${CHAT_MODEL:-gpt-4.1-mini}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      CHAT_MODEL: ${CHAT_MODEL:-qwen3.5:4b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1024}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
       STORAGE_DIR: /data
       CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-20971520}
@@ -38,6 +42,8 @@ services:
       PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-60}
     volumes:
       - documents:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

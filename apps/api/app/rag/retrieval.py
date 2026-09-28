@@ -49,7 +49,7 @@ class VectorRetriever:
             raise AppError(
                 "reindex_required", "Embedding model changed. Reindex documents first.", 409
             )
-        vector = (await self.embeddings.embed([question]))[0]
+        vector = (await self.embeddings.embed([question], "query"))[0]
         distance = DocumentChunk.embedding.cosine_distance(vector)
         rows = (
             await self.session.execute(

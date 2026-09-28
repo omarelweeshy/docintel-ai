@@ -56,7 +56,7 @@ async def workspace(db):
 def service(db, tmp_path, provider):
     settings = Settings(storage_dir=tmp_path)
     return IngestionService(
-        db, FileStorage(tmp_path, 10000), WordChunker(), EmbeddingService(provider, 1536), settings
+        db, FileStorage(tmp_path, 10000), WordChunker(), EmbeddingService(provider, 1024), settings
     )
 
 
@@ -71,7 +71,9 @@ def file():
 async def test_upload_duplicate_scope_retrieval_and_delete(db, tmp_path):
     a, b = await workspace(db), await workspace(db)
     provider = AsyncMock()
-    provider.embed.side_effect = lambda texts: [[1.0] + [0.0] * 1535 for _ in texts]
+    provider.embed.side_effect = lambda texts, purpose="document": [
+        [1.0] + [0.0] * 1023 for _ in texts
+    ]
     ingestion = service(db, tmp_path, provider)
     document = await ingestion.upload(a.id, file())
     assert document.status == "ready"
@@ -85,7 +87,7 @@ async def test_upload_duplicate_scope_retrieval_and_delete(db, tmp_path):
     await db.refresh(document)
     document_b = await ingestion.upload(b.id, file())
     assert document_b.id != document.id
-    retrieval = VectorRetriever(db, EmbeddingService(provider, 1536), Settings())
+    retrieval = VectorRetriever(db, EmbeddingService(provider, 1024), Settings())
     results = await retrieval.retrieve(a.id, "retention")
     assert {r.document_id for r in results} == {document.id}
     assert await retrieval.retrieve(a.id, "retention", [document_b.id]) == []

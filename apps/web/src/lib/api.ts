@@ -44,6 +44,7 @@ export type Stats = {
 export type PublicConfig = {
   max_upload_bytes: number;
   max_question_chars: number;
+  ai_provider: "ollama" | "openai";
   ai_configured: boolean;
 };
 

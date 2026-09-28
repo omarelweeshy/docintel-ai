@@ -2,7 +2,7 @@
 
 ## Next: strengthen Phase 1
 
-1. Configure a provider key with a small spending limit; smoke-test a non-sensitive PDF, DOCX and TXT. Verify real model structured output and embedding limits. No live paid call was made during this build.
+1. Install/pull the documented Ollama models; smoke-test a non-sensitive PDF, DOCX and TXT on the local GPU. Measure latency, memory use, structured output reliability, and retrieval quality.
 2. Create 30-50 labeled questions with supporting document passages and deliberate unanswerable questions. Measure recall@k, source precision, abstention and unsupported claims before changing chunk sizes or threshold.
 3. Add identity and workspace memberships with cross-user API tests before hosting anything publicly.
 4. Move ingestion to a durable worker/outbox; include retries, leases, crash recovery, progress stages and idempotent reindexing.

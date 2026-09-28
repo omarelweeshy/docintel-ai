@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 from app.core.errors import ProviderError
 from app.providers.interfaces import EmbeddingProvider
@@ -9,11 +10,13 @@ class EmbeddingService:
         self.provider = provider
         self.dimensions = dimensions
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(
+        self, texts: list[str], purpose: Literal["document", "query"] = "document"
+    ) -> list[list[float]]:
         if not texts:
             return []
         try:
-            vectors = await self.provider.embed(texts)
+            vectors = await self.provider.embed(texts, purpose)
         except ProviderError:
             raise
         except Exception as exc:

@@ -4,7 +4,7 @@ Status: Phase 1 implementation and local verification complete on 2026-09-28.
 
 ## 1. Implemented
 
-Next.js 15 dashboard, documents, upload and chat pages; workspace creation/selection; FastAPI REST/OpenAPI; SQLAlchemy async relational models; Alembic migration; PostgreSQL/pgvector retrieval; PDF/DOCX/TXT ingestion; deterministic overlapping chunks; embeddings and generation protocols with an OpenAI adapter; validated citation mapping; persistent conversations; document and conversation deletion; request IDs and safe error messages; Docker/Compose and CI.
+Next.js 15 dashboard, documents, upload and chat pages; workspace creation/selection; FastAPI REST/OpenAPI; SQLAlchemy async relational models; Alembic migrations; PostgreSQL/pgvector retrieval; PDF/DOCX/TXT ingestion; deterministic overlapping chunks; embeddings and generation protocols with local Ollama and optional OpenAI adapters; validated citation mapping; persistent conversations; document and conversation deletion; request IDs and safe error messages; Docker/Compose and CI.
 
 ## 2. Not implemented
 
@@ -26,7 +26,7 @@ Backend, Python 3.12 against PostgreSQL 16 + pgvector:
 - `alembic check`: passed, no model/migration drift.
 - `ruff check .` and `ruff format --check .`: passed.
 - `mypy app` in strict mode: passed.
-- `pytest -q`: **32 passed**. This includes parser/chunker units, invalid uploads,
+- `pytest -q`: **33 passed**. This includes parser/chunker units, invalid uploads,
   provider failures, citation enforcement, prompt-like document text, workspace-scoped
   retrieval, duplicate detection, cascading deletion, and a complete mocked-provider REST
   workflow. The only warning is a third-party FastAPI/Starlette TestClient deprecation.
@@ -41,14 +41,15 @@ Frontend, clean npm install:
 
 Containers and browser:
 
-- Both production images built from lock files.
-- `docker compose up --build` reached healthy state for PostgreSQL, API, and web.
+- Both production images built from lock files after adding the local provider.
+- `docker compose up --build` reached healthy state for PostgreSQL, API, and web;
+  migration 0002 applied without deleting legacy vectors and `alembic check` reported no drift.
 - `GET /health/ready` returned `ready`; web returned HTTP 200.
 - Browser checks covered the desktop dashboard, workspace form control, and responsive
   dashboard/upload/chat empty states at 390x844.
 
-No paid OpenAI request was made. Provider behavior is covered by deterministic mocks, so
-real model availability, latency, output quality, and account permissions remain unverified.
+No paid OpenAI request was made. The Ollama HTTP contract is covered by a mock transport.
+Live local-model latency and answer quality remain to be verified after model installation.
 
 ## 6. Known bugs / operational gaps
 
@@ -71,12 +72,14 @@ Open http://localhost:3000 and http://localhost:8000/docs. See README for native
 
 ## 9. Environment to configure
 
-OPENAI_API_KEY is required for real indexing/generation, not startup/tests. Defaults use gpt-4.1-mini and text-embedding-3-small (1536 dimensions). Configure DATABASE_URL and STORAGE_DIR for native development; browser origins/API URL if ports/hosts change. Review all limits in .env.example. Do not reuse local database passwords for deployment.
+The default requires a running Ollama server with `qwen3.5:4b` and
+`qwen3-embedding:0.6b`; no API key is needed. `OPENAI_API_KEY` is required only if
+`AI_PROVIDER=openai`. Configure database/storage/browser values as needed and review `.env.example`.
 
 ## 10. Exact next tasks
 
-1. Add a key locally and validate three small non-sensitive sample files with real OpenAI calls and a spending cap.
-2. Build a labeled evaluation set before tuning retrieval threshold/chunk sizes.
+1. Pull both Ollama models and validate three representative files end to end on the local GPU.
+2. Build a labeled evaluation set before tuning the model, retrieval threshold, or chunks.
 3. Add authenticated workspace memberships before public hosting.
 4. Add durable ingestion/retry/recovery and a cleanup outbox.
 5. Implement OCR in a resource-limited worker with mixed PDF tests.

@@ -25,7 +25,9 @@ async def test_full_rest_workflow(db, tmp_path):  # noqa: F811
             yield session
 
     provider = AsyncMock()
-    provider.embed.side_effect = lambda texts: [[1.0] + [0.0] * 1535 for _ in texts]
+    provider.embed.side_effect = lambda texts, purpose="document": [
+        [1.0] + [0.0] * 1023 for _ in texts
+    ]
 
     async def generate(system, user):
         context = json.loads(user)["untrusted_context"]

@@ -33,7 +33,11 @@ No adversarial evaluation benchmark, content moderation classifier, or entailmen
 
 ## Data flow and retention
 
-Text chunks go to OpenAI for embedding. The question and selected passages go to OpenAI for generation; responses use store=false. That flag alone is not a contractual zero-retention guarantee. Review provider data terms and organizational approvals before sending confidential NGO/client documents.
+With the default Ollama configuration, text chunks, questions, and selected passages stay on the
+local machine. Ollama still represents a separate local process and must remain bound to a trusted
+interface. If `AI_PROVIDER=openai`, this content leaves the machine for embedding and generation;
+responses use `store=false`, which alone is not a contractual zero-retention guarantee. Review
+provider terms and organizational approvals before sending confidential NGO/client documents.
 
 Original/index deletion leaves historical answers and citation snippets. Delete conversations to remove those snapshots. Backups/volumes/provider-side data have independent lifecycles. No complete erasure or retention-policy guarantee exists.
 
