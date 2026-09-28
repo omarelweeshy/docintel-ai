@@ -1,0 +1,68 @@
+name: docintel-ai
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docintel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docintel}
+      POSTGRES_DB: ${POSTGRES_DB:-docintel}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  api:
+    build: ./apps/api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-docintel}:${POSTGRES_PASSWORD:-docintel}@db:5432/${POSTGRES_DB:-docintel}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CHAT_MODEL: ${CHAT_MODEL:-gpt-4.1-mini}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      STORAGE_DIR: /data
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000"]}'
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-20971520}
+      MAX_DOCUMENT_CHARS: ${MAX_DOCUMENT_CHARS:-2000000}
+      MAX_PAGES: ${MAX_PAGES:-500}
+      CHUNK_WORDS: ${CHUNK_WORDS:-350}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-50}
+      MAX_CHUNK_CHARS: ${MAX_CHUNK_CHARS:-6000}
+      MAX_CHUNKS: ${MAX_CHUNKS:-2000}
+      TOP_K: ${TOP_K:-6}
+      MIN_SIMILARITY: ${MIN_SIMILARITY:-0.25}
+      MAX_QUESTION_CHARS: ${MAX_QUESTION_CHARS:-2000}
+      MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS:-24000}
+      PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-60}
+    volumes:
+      - documents:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+volumes:
+  postgres_data:
+  documents:

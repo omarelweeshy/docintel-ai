@@ -79,6 +79,10 @@ async def test_upload_duplicate_scope_retrieval_and_delete(db, tmp_path):
     with pytest.raises(AppError) as duplicate:
         await ingestion.upload(a.id, file())
     assert duplicate.value.status == 409
+    # Rollback expires ORM instances; explicitly reload before reusing this test session.
+    await db.refresh(a)
+    await db.refresh(b)
+    await db.refresh(document)
     document_b = await ingestion.upload(b.id, file())
     assert document_b.id != document.id
     retrieval = VectorRetriever(db, EmbeddingService(provider, 1536), Settings())
