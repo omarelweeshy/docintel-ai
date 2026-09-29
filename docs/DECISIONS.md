@@ -136,3 +136,13 @@ defer all evaluation infrastructure.
 **Tradeoffs:** Exact term checks are deliberately small and can miss semantically correct wording.
 Local inference is slow and unsuitable for normal CI runners. The gate is a release check, while a
 larger scored dataset remains necessary before claiming measured RAG quality.
+
+## 14. Split public deployment by workload
+
+**Decision:** Use Vercel for the Next.js frontend. Deploy FastAPI and durable ingestion workers on a container platform, PostgreSQL/pgvector on a managed database, and originals in object storage. Keep Ollama as the local development provider; use a separately hosted inference endpoint in public environments.
+
+**Why:** The browser frontend fits Vercel's build and edge delivery model. Document uploads, parser workloads, multi-minute embedding jobs, durable files and local Ollama do not fit a stateless frontend deployment. Splitting by workload also avoids presenting a frontend-only deployment as a working RAG system.
+
+**Alternatives:** Put FastAPI in Vercel Functions; run the entire stack on one VPS; deploy all components to Azure.
+
+**Tradeoffs:** Multiple managed services add configuration and cost. A single VPS is cheaper but creates a larger security and reliability burden. Azure remains the preferred later portfolio target, but service selection and spending require an explicit budget decision.

@@ -2,7 +2,7 @@
 
 A production-oriented document intelligence and retrieval-augmented generation (RAG) application. It turns collections of PDF, DOCX, and TXT documents into searchable passages and answers with inspectable sources.
 
-This Phase 1 implementation focuses on an understandable, tested RAG foundation. It is **not production-ready**: authentication, access control, durable background processing, and deployment hardening are deferred.
+This Phase 1 implementation focuses on an understandable, tested RAG foundation. It is **not production-ready**: authentication, access control, durable background processing, and deployment hardening are deferred. The public release gates and target hosting layout are tracked in [PRODUCTION_PLAN](docs/PRODUCTION_PLAN.md).
 
 ## What works
 
