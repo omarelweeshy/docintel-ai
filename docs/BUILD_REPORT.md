@@ -2,6 +2,21 @@
 
 Status: Phase 1 implementation and local acceptance verification complete on 2026-09-29.
 
+## Self-hosted reviewer distribution update
+
+The repository now includes a self-contained local-AI Compose overlay, optional NVIDIA GPU overlay, Windows/Linux setup scripts, and a reviewer guide. The setup provisions PostgreSQL, Ollama, both model names, FastAPI and Next.js without a paid provider key. Ollama model data, database rows and uploaded originals persist in named Docker volumes.
+
+Local validation on 30 September 2026:
+
+- PowerShell setup script parsed without syntax errors.
+- Bash setup script passed `bash -n`.
+- All three Compose YAML files parsed and contained the expected service mappings.
+- Backend: 31 passed, 4 database integration tests skipped because the disposable test database was unavailable in this shell.
+- Frontend: ESLint passed, strict TypeScript passed, 5 tests passed.
+- The merged self-hosted Compose stack was not started in this shell because Docker CLI/engine access was unavailable. GitHub Actions validates the merged Compose configuration; an actual first-run model download remains required before release tagging.
+
+This packaging does not change the security boundary: it is for one trusted operator on a loopback-bound machine and must not be exposed as a multi-tenant public service.
+
 ## 1. Implemented
 
 Next.js 15 dashboard, documents, upload and chat pages; workspace creation/selection; FastAPI REST/OpenAPI; SQLAlchemy async relational models; Alembic migrations; PostgreSQL/pgvector retrieval; PDF/DOCX/TXT ingestion; deterministic overlapping chunks; embeddings and generation protocols with local Ollama and optional OpenAI adapters; validated citation mapping; persistent conversations; document and conversation deletion; request IDs and safe error messages; Docker/Compose and CI.

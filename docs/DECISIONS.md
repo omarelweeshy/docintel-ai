@@ -146,3 +146,13 @@ larger scored dataset remains necessary before claiming measured RAG quality.
 **Alternatives:** Put FastAPI in Vercel Functions; run the entire stack on one VPS; deploy all components to Azure.
 
 **Tradeoffs:** Multiple managed services add configuration and cost. A single VPS is cheaper but creates a larger security and reliability burden. Azure remains the preferred later portfolio target, but service selection and spending require an explicit budget decision.
+
+## 15. Self-contained reviewer distribution
+
+**Decision:** Provide a Compose overlay that runs pinned Ollama alongside PostgreSQL, FastAPI and Next.js, with cross-platform setup scripts. Keep the existing host-Ollama path for developers who want direct GPU control.
+
+**Why:** A portfolio reviewer should not need an API key or understand host-to-container networking before seeing real RAG behavior. Docker volumes preserve model weights, originals and database state between runs.
+
+**Alternatives:** Require a separately installed Ollama service; ship a fake deterministic demo provider; distribute native installers for every operating system.
+
+**Tradeoffs:** The first model download is several gigabytes, CPU inference is slow, and Docker GPU support varies by platform. Native installers would add signing and release-maintenance work. The self-contained path favors reproducibility and honest functionality over a small download.

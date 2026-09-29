@@ -1,6 +1,8 @@
 # DocIntel AI
 
-A production-oriented document intelligence and retrieval-augmented generation (RAG) application. It turns collections of PDF, DOCX, and TXT documents into searchable passages and answers with inspectable sources.
+A production-oriented, self-hosted document intelligence and retrieval-augmented generation (RAG) application. It turns collections of PDF, DOCX, and TXT documents into searchable passages and answers with inspectable sources.
+
+[![CI](https://github.com/omarelweeshy/docintel-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/omarelweeshy/docintel-ai/actions/workflows/ci.yml)
 
 This Phase 1 implementation focuses on an understandable, tested RAG foundation. It is **not production-ready**: authentication, access control, durable background processing, and deployment hardening are deferred. The public release gates and target hosting layout are tracked in [PRODUCTION_PLAN](docs/PRODUCTION_PLAN.md).
 
@@ -36,6 +38,24 @@ Next.js 15 / React / TanStack Query
 One backend service. Business logic depends on provider protocols, not OpenAI SDK objects. The database is the source of truth for metadata, status, vectors, and conversations. Read [ARCHITECTURE](docs/ARCHITECTURE.md), [DECISIONS](docs/DECISIONS.md), and [SECURITY](docs/SECURITY.md) before changing boundaries.
 
 ## Quick start with Docker
+
+For the simplest reviewer setup, use the self-contained Docker path. It runs PostgreSQL, Ollama, FastAPI and Next.js and persists models and application data in Docker volumes.
+
+Windows PowerShell:
+
+```powershell
+.\scripts\setup.ps1
+```
+
+Linux or macOS:
+
+```sh
+./scripts/setup.sh
+```
+
+The first run downloads the local models. GPU acceleration is optional: use `-Gpu` on PowerShell or `--gpu` on Linux when Docker has NVIDIA Container Toolkit support. See the [reviewer guide](docs/REVIEWER_GUIDE.md) for a ten-minute evaluation using the included documents.
+
+### Existing host Ollama setup
 
 Requires Docker Engine/Desktop with Compose v2 and [Ollama for Windows](https://docs.ollama.com/windows).
 Install Ollama, then pull the two local models:

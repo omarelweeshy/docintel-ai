@@ -60,6 +60,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate self-hosted distribution
+        shell: pwsh
+        run: |
+          bash -n scripts/setup.sh
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/setup.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          docker compose -f docker-compose.yml -f docker-compose.local-ai.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.local-ai.yml -f docker-compose.gpu.yml config --quiet
       - run: docker compose up --build --wait --wait-timeout 240
       - run: curl --fail http://localhost:8000/health/ready && curl --fail http://localhost:3000
       - if: failure()

@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible DocIntel AI defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include API keys, private documents, prompts containing confidential data, or database dumps.
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      placeholder: Commit SHA or release tag
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows with Docker Desktop, Linux, macOS]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: Use non-sensitive sample data and list exact steps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and redacted logs
+    validations:
+      required: true
