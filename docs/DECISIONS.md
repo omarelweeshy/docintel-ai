@@ -121,3 +121,18 @@ Each decision is a Phase 1 choice with a specific replacement trigger.
 **Alternatives:** Force npm audit upgrades to Next.js 16; ignore development dependency findings.
 
 **Tradeoffs:** Overrides need regression checks on updates. Dependency audits cover known advisories only. CI tests on Linux; Windows native installation uses pyproject because Linux locks include uvloop.
+
+## 13. Executable Phase 1 acceptance gate
+
+**Decision:** Keep a small labeled corpus and an API-level acceptance runner in the repository.
+
+**Why:** Unit tests prove boundaries with deterministic providers but cannot establish that the
+selected local models, real parsers, vectors, retrieval filters and structured generation work
+together. The acceptance gate exercises those parts with PDF, DOCX and TXT fixtures.
+
+**Alternatives:** Rely on a manual browser demo; put nondeterministic local-model calls in CI;
+defer all evaluation infrastructure.
+
+**Tradeoffs:** Exact term checks are deliberately small and can miss semantically correct wording.
+Local inference is slow and unsuitable for normal CI runners. The gate is a release check, while a
+larger scored dataset remains necessary before claiming measured RAG quality.

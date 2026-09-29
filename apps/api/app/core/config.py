@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     min_similarity: float = Field(default=0.25, ge=-1, le=1)
     max_question_chars: int = Field(default=2000, ge=1, le=10000)
     max_context_chars: int = Field(default=24000, ge=1000, le=100000)
-    provider_timeout_seconds: float = Field(default=60, gt=0)
+    # Cold-loading the local generation model can exceed one minute on laptop GPUs.
+    provider_timeout_seconds: float = Field(default=180, gt=0)
 
     @model_validator(mode="after")
     def validate_overlap(self) -> "Settings":

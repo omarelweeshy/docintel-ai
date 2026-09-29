@@ -75,7 +75,7 @@ async def validation_error(request: Request, exc: RequestValidationError) -> JSO
 
 @app.exception_handler(SQLAlchemyError)
 async def database_error(request: Request, exc: SQLAlchemyError) -> JSONResponse:
-    logging.getLogger(__name__).error("database_error")
+    logging.getLogger(__name__).error("database_error", exc_info=exc)
     return error_response(
         request, "database_unavailable", "Database operation failed. Try again.", 503
     )
@@ -83,7 +83,7 @@ async def database_error(request: Request, exc: SQLAlchemyError) -> JSONResponse
 
 @app.exception_handler(Exception)
 async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-    logging.getLogger(__name__).error("unexpected_error")
+    logging.getLogger(__name__).error("unexpected_error", exc_info=exc)
     return error_response(request, "internal_error", "An unexpected error occurred.", 500)
 
 

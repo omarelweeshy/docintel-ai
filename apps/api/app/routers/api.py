@@ -1,4 +1,5 @@
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -78,6 +79,33 @@ async def create_workspace(body: WorkspaceCreate, session: Session) -> Workspace
     session.add(workspace)
     await session.commit()
     return workspace
+
+
+@router.delete("/workspaces/{workspace_id}", status_code=204, tags=["workspaces"])
+async def delete_workspace(workspace_id: UUID, session: Session, settings: Config) -> Response:
+    workspace = await CatalogRepository(session).workspace(workspace_id)
+    storage_names = list(
+        await session.scalars(
+            select(Document.storage_name).where(Document.workspace_id == workspace_id)
+        )
+    )
+    await session.delete(workspace)
+    await session.commit()
+    storage = FileStorage(settings.storage_dir, settings.max_upload_bytes)
+    failed = False
+    for storage_name in storage_names:
+        try:
+            storage.delete(storage_name)
+        except OSError:
+            failed = True
+            logger.error("workspace_file_cleanup_failed", extra={"workspace_id": str(workspace_id)})
+    if failed:
+        raise AppError(
+            "file_cleanup_failed",
+            "Workspace data was removed, but file cleanup requires administrator attention.",
+            500,
+        )
+    return Response(status_code=204)
 
 
 @router.get("/workspaces/{workspace_id}/stats", response_model=Stats, tags=["workspaces"])
@@ -238,18 +266,22 @@ async def chat(
         provider,
         settings,
     ).answer(body.workspace_id, question, body.document_ids)
-    user_message = Message(conversation_id=body.conversation_id, role="user", content=question)
+    user_created_at = datetime.now(UTC)
+    user_message = Message(
+        conversation_id=body.conversation_id,
+        role="user",
+        content=question,
+        created_at=user_created_at,
+    )
     session.add(user_message)
     await session.flush()
-    # Explicit timestamps prevent transaction-level now() ties between turns.
-    from datetime import UTC, datetime
-
     assistant = Message(
         conversation_id=body.conversation_id,
         role="assistant",
         content=result.answer,
         citations=[c.model_dump(mode="json") for c in result.citations],
-        created_at=datetime.now(UTC),
+        # Keep the pair ordered even if the host clock has coarse resolution.
+        created_at=max(datetime.now(UTC), user_created_at + timedelta(microseconds=1)),
     )
     session.add(assistant)
     await session.commit()

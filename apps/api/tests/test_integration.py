@@ -18,7 +18,7 @@ from app.models.entities import Document, DocumentChunk, Workspace
 from app.rag.chunking import WordChunker
 from app.rag.retrieval import VectorRetriever
 from app.repositories.catalog import CatalogRepository
-from app.routers.api import delete_document
+from app.routers.api import delete_document, delete_workspace
 from app.services.embeddings import EmbeddingService
 from app.services.ingestion import IngestionService
 from app.services.storage import FileStorage
@@ -124,3 +124,23 @@ async def test_provider_failure_has_no_partial_vectors(db, tmp_path):
         == 0
     )
     assert await db.get(Document, document.id)
+
+
+async def test_workspace_delete_removes_originals_and_relational_data(db, tmp_path):
+    item = await workspace(db)
+    provider = AsyncMock()
+    provider.embed.return_value = [[1.0] + [0.0] * 1023]
+    document = await service(db, tmp_path, provider).upload(item.id, file())
+    original = tmp_path / document.storage_name
+    assert original.is_file()
+
+    await delete_workspace(item.id, db, Settings(storage_dir=tmp_path))
+
+    assert not original.exists()
+    assert await db.get(Workspace, item.id) is None
+    assert (
+        await db.scalar(
+            select(func.count()).select_from(Document).where(Document.id == document.id)
+        )
+        == 0
+    )

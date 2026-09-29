@@ -1,6 +1,6 @@
 # Phase 1 build report
 
-Status: Phase 1 implementation and local verification complete on 2026-09-28.
+Status: Phase 1 implementation and local acceptance verification complete on 2026-09-29.
 
 ## 1. Implemented
 
@@ -26,7 +26,7 @@ Backend, Python 3.12 against PostgreSQL 16 + pgvector:
 - `alembic check`: passed, no model/migration drift.
 - `ruff check .` and `ruff format --check .`: passed.
 - `mypy app` in strict mode: passed.
-- `pytest -q`: **33 passed**. This includes parser/chunker units, invalid uploads,
+- `pytest -q`: **35 passed**. This includes parser/chunker units, invalid uploads,
   provider failures, citation enforcement, prompt-like document text, workspace-scoped
   retrieval, duplicate detection, cascading deletion, and a complete mocked-provider REST
   workflow. The only warning is a third-party FastAPI/Starlette TestClient deprecation.
@@ -49,11 +49,23 @@ Containers and browser:
   dashboard/upload/chat empty states at 390x844.
 
 No paid OpenAI request was made. The Ollama HTTP contract is covered by a mock transport.
-Live local-model latency and answer quality remain to be verified after model installation.
+
+The repeatable local acceptance gate passed **14/14 checks** with `qwen3.5:4b` and
+`qwen3-embedding:0.6b` on the RTX 3060 Laptop GPU. It verified PDF, DOCX and TXT ingestion;
+duplicate detection; document-filtered questions; PDF citations on pages 1, 2 and 3; grounded
+answers; the embedded prompt-injection case; insufficient-context abstention; and deletion.
+Cold model loading exposed the former 60-second timeout, so the validated default is now 180
+seconds. The first generation took 2 minutes 16 seconds; subsequent behavior depends on Ollama
+keeping both models loaded.
 
 ## 6. Known bugs / operational gaps
 
-No assertion that the system is bug-free. A process crash can strand processing rows or original files; delete/reupload is the current recovery workflow. Filesystem/database deletion is not atomic. A source previously deleted remains a historical snapshot and its download returns 404. Blank PDF pages require removal until OCR/blank-page handling is implemented. The document-filter picker is capped at 100 recent documents.
+No assertion that the system is bug-free. A process crash can strand processing rows or original files; delete/reupload is the current recovery workflow. Filesystem/database deletion is not atomic. A source previously deleted remains a historical snapshot and its download returns 404. Blank PDF pages require removal until OCR/blank-page handling is implemented. The document-filter picker is capped at 100 recent documents. Cold local-model swaps can take minutes on a 6 GB GPU.
+
+On this Windows host, Docker-to-Ollama traffic is blocked by Windows Firewall until an
+administrator creates a rule scoped to the private WSL interface. Native Windows API execution
+passed the complete acceptance gate. Container images, Compose startup and health checks were
+verified separately; a broad `0.0.0.0` Ollama bind was deliberately rejected.
 
 ## 7. Security limitations
 
@@ -78,12 +90,12 @@ The default requires a running Ollama server with `qwen3.5:4b` and
 
 ## 10. Exact next tasks
 
-1. Pull both Ollama models and validate three representative files end to end on the local GPU.
-2. Build a labeled evaluation set before tuning the model, retrieval threshold, or chunks.
-3. Add authenticated workspace memberships before public hosting.
-4. Add durable ingestion/retry/recovery and a cleanup outbox.
-5. Implement OCR in a resource-limited worker with mixed PDF tests.
-6. Define historical data erasure policy and backup retention.
+1. Expand the seven-case acceptance corpus to 30-50 labeled questions before tuning retrieval.
+2. Add authenticated workspace memberships before public hosting.
+3. Add durable ingestion/retry/recovery and a cleanup outbox.
+4. Implement OCR in a resource-limited worker with mixed PDF tests.
+5. Define historical data erasure policy and backup retention.
+6. Add browser E2E coverage and OpenTelemetry before a hosted release.
 
 ## Build environment notes
 

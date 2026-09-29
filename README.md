@@ -6,7 +6,7 @@ This Phase 1 implementation focuses on an understandable, tested RAG foundation.
 
 ## What works
 
-- Create/select workspaces; dashboard counts and recent documents.
+- Create/select workspaces; dashboard counts and recent documents; API-level workspace cleanup.
 - Validate uploads, SHA-256 duplicate detection per workspace, generated storage names.
 - Parse selectable-text PDFs, DOCX body paragraphs/tables, and UTF-8 TXT.
 - Page-preserving chunks, local Qwen embeddings, PostgreSQL cosine search.
@@ -63,6 +63,14 @@ Create a workspace using **+**, upload a small text-based document, and ask a st
 Ollama runs on the host GPU and the API container reaches it through `host.docker.internal`.
 If Ollama or either model is unavailable, uploads retain metadata with a failed status and an
 actionable error. Empty-workspace questions abstain without loading a model. There is no fake AI mode.
+
+Windows Firewall can block the private WSL-to-Ollama connection even though both processes are
+local. Keep Ollama bound to the WSL gateway address rather than `0.0.0.0`. If Compose uploads time
+out while native Windows API calls work, create an inbound TCP rule as Administrator that allows
+port 11434 only from the current WSL private address to the WSL gateway address. WSL addresses can
+change after a restart, so inspect `wsl.exe -d Ubuntu -- ip route show default` and
+`wsl.exe -d Ubuntu -- hostname -I` before creating or updating the rule. Do not expose the
+unauthenticated Ollama port to public or LAN interfaces.
 
 Compose binds all published ports to localhost. Data persists in named volumes. Stop with `docker compose down`; **do not add `-v` unless you intend to erase the local database and document volumes**. Changing the database password does not update credentials in an existing database volume.
 
@@ -122,7 +130,7 @@ See [.env.example](.env.example) for every setting.
 | MAX_CHUNK_CHARS / MAX_CHUNKS | 6000 / 2000 | Bound pathological text and ingestion cost |
 | TOP_K / MIN_SIMILARITY | 6 / 0.25 | Retrieval count and uncalibrated cosine cutoff |
 | MAX_QUESTION_CHARS / MAX_CONTEXT_CHARS | 2000 / 24000 | Truncated question and source budget |
-| PROVIDER_TIMEOUT_SECONDS | 60 | Per provider call; one SDK retry |
+| PROVIDER_TIMEOUT_SECONDS | 180 | Per provider call; allows local-model cold starts |
 | NEXT_PUBLIC_API_URL | localhost:8000 | Public browser endpoint, never a secret |
 
 Use an embedding model supporting the configured dimensions. Delete and reupload is the V1
@@ -161,6 +169,21 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+### Local Phase 1 acceptance gate
+
+With the complete stack and Ollama models running, execute the real local pipeline against the
+included PDF, DOCX, and TXT samples:
+
+```powershell
+.venv\Scripts\python.exe scripts\phase1_acceptance.py
+```
+
+The gate uploads all formats and verifies processing, duplicate detection, document-filtered
+retrieval, PDF page citations, grounded answers, insufficient-context behavior, the embedded
+prompt-injection case, and deletion. It uses the configured local models and therefore measures
+the running system rather than mocks. Use `--keep-data` to retain the acceptance workspace content
+for manual inspection.
 
 CI runs all gates, migration/schema comparison, migration downgrade/upgrade, and a Compose startup smoke test. See [BUILD_REPORT](docs/BUILD_REPORT.md) for actual local results, including limitations. Dependency locks are committed; updating them requires rerunning tests and the dependency audit.
 
