@@ -72,6 +72,17 @@ change after a restart, so inspect `wsl.exe -d Ubuntu -- ip route show default` 
 `wsl.exe -d Ubuntu -- hostname -I` before creating or updating the rule. Do not expose the
 unauthenticated Ollama port to public or LAN interfaces.
 
+The repository includes a scoped helper. Run it from **PowerShell as Administrator**, then restart
+the stack:
+
+```powershell
+.\scripts\allow-ollama-wsl.ps1
+docker compose up --build
+```
+
+The script allows only the current WSL IPv4 address to reach port 11434 on the private WSL gateway.
+It does not open Ollama on every interface.
+
 Compose binds all published ports to localhost. Data persists in named volumes. Stop with `docker compose down`; **do not add `-v` unless you intend to erase the local database and document volumes**. Changing the database password does not update credentials in an existing database volume.
 
 ### Windows / WSL

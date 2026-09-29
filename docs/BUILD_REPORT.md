@@ -65,7 +65,8 @@ No assertion that the system is bug-free. A process crash can strand processing 
 On this Windows host, Docker-to-Ollama traffic is blocked by Windows Firewall until an
 administrator creates a rule scoped to the private WSL interface. Native Windows API execution
 passed the complete acceptance gate. Container images, Compose startup and health checks were
-verified separately; a broad `0.0.0.0` Ollama bind was deliberately rejected.
+verified separately; a broad `0.0.0.0` Ollama bind was deliberately rejected. Run
+`scripts/allow-ollama-wsl.ps1` from an Administrator PowerShell to create the narrow rule.
 
 ## 7. Security limitations
 
