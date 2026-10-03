@@ -6,14 +6,18 @@ Status: Phase 1 implementation and local acceptance verification complete on 202
 
 The repository now includes a self-contained local-AI Compose overlay, optional NVIDIA GPU overlay, Windows/Linux setup scripts, and a reviewer guide. The setup provisions PostgreSQL, Ollama, both model names, FastAPI and Next.js without a paid provider key. Ollama model data, database rows and uploaded originals persist in named Docker volumes.
 
-Local validation on 30 September 2026:
+Local validation on 3 October 2026:
 
 - PowerShell setup script parsed without syntax errors.
 - Bash setup script passed `bash -n`.
 - All three Compose YAML files parsed and contained the expected service mappings.
 - Backend: 31 passed, 4 database integration tests skipped because the disposable test database was unavailable in this shell.
 - Frontend: ESLint passed, strict TypeScript passed, 5 tests passed.
-- The merged self-hosted Compose stack was not started in this shell because Docker CLI/engine access was unavailable. GitHub Actions validates the merged Compose configuration; an actual first-run model download remains required before release tagging.
+- Docker Desktop 4.93.0 with Engine 29.8.1 ran PostgreSQL, FastAPI and Next.js successfully while host Ollama 0.35.1 served the two existing models from drive D.
+- API readiness, frontend HTTP 200 and API-container-to-Ollama connectivity passed.
+- Both Qwen models ran with 100% GPU placement on the RTX 3060 Laptop GPU.
+- The real Phase 1 acceptance runner passed 14/14 checks against the Docker stack, including all formats, vector retrieval, page citations, prompt-injection handling, abstention, duplicate detection and deletion.
+- The Windows launcher limits Ollama to one loaded model and zero idle keep-alive time because keeping the generation model resident caused excessive Windows pagefile growth on the tested 6 GB GPU. This saves resources at the cost of model reload latency between embedding and generation requests.
 
 This packaging does not change the security boundary: it is for one trusted operator on a loopback-bound machine and must not be exposed as a multi-tenant public service.
 

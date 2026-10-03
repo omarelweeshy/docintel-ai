@@ -65,6 +65,14 @@ ollama pull qwen3.5:4b
 ollama pull qwen3-embedding:0.6b
 ```
 
+On Windows, after the models exist, the repository launcher handles Docker startup, the private WSL gateway, Ollama model storage and service readiness:
+
+```powershell
+.\scripts\start-windows.ps1 -Build
+```
+
+Use `-Build` after code or dependency changes. Omit it for normal subsequent starts.
+
 From the repository root:
 
 ```sh

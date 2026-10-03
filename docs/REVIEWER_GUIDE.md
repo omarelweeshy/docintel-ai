@@ -29,6 +29,8 @@ cd docintel-ai
 
 On a Docker installation with NVIDIA Container Toolkit support, pass `-Gpu` on PowerShell or `--gpu` on Linux. The first run downloads approximately 4 GB of model weights and builds the application images. Later runs reuse Docker volumes and model data.
 
+For Windows systems that already run Ollama on the host GPU, use `scripts/start-windows.ps1 -Build` instead. This avoids downloading the large Ollama container image, discovers the private WSL gateway automatically, verifies both models and starts the application containers. It limits Ollama to one loaded model and unloads idle models immediately to reduce memory and pagefile pressure on 6 GB GPUs. Omit `-Build` on later starts.
+
 Open `http://localhost:3000`. The OpenAPI interface is available at `http://localhost:8000/docs`.
 
 ## Ten-minute evaluation
