@@ -1,0 +1,33 @@
+server {
+    listen 80;
+    server_tokens off;
+
+    allow 127.0.0.1;
+    # Docker Desktop NAT presents host and LAN requests through its bridge.
+    # Windows Firewall enforces the original-client LAN subnet before this hop.
+    allow 172.16.0.0/12;
+    allow ${LAN_SUBNET};
+    deny all;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location /api/ {
+        proxy_pass http://api:8000/;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 20m;
+    }
+
+    location / {
+        proxy_pass http://web:3000;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

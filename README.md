@@ -73,6 +73,14 @@ On Windows, after the models exist, the repository launcher handles Docker start
 
 Use `-Build` after code or dependency changes. Omit it for normal subsequent starts.
 
+To make the app available temporarily to other devices on the same trusted network, use:
+
+```powershell
+.\scripts\start-windows.ps1 -Lan
+```
+
+The LAN mode rebuilds the frontend and starts an Nginx gateway on port 3001 at the current network address. The gateway rejects clients outside the detected local `/24` subnet and proxies the browser API through the same origin. PostgreSQL, FastAPI and Next.js remain loopback-bound. Windows Firewall may still require you to permit inbound TCP 3001 for the current network.
+
 From the repository root:
 
 ```sh

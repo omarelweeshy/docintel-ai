@@ -75,8 +75,21 @@ jobs:
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/start-windows.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
           docker compose -f docker-compose.yml -f docker-compose.local-ai.yml config --quiet
           docker compose -f docker-compose.yml -f docker-compose.local-ai.yml -f docker-compose.gpu.yml config --quiet
+          $env:LAN_ADDRESS = '192.168.1.10'
+          $env:LAN_SUBNET = '192.168.1.0/24'
+          docker compose -f docker-compose.yml -f docker-compose.lan.yml config --quiet
       - run: docker compose up --build --wait --wait-timeout 240
       - run: curl --fail http://localhost:8000/health/ready && curl --fail http://localhost:3000
       - if: failure()

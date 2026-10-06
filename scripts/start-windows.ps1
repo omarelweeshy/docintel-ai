@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$Build
+    [switch]$Build,
+    [switch]$Lan
 )
 
 $ErrorActionPreference = "Stop"
@@ -113,21 +114,45 @@ if (-not (Test-Path -LiteralPath $envPath)) {
     Copy-Item (Join-Path $repoRoot ".env.example") $envPath
 }
 $envLines = @(Get-Content -LiteralPath $envPath)
-$replacement = "OLLAMA_BASE_URL=$ollamaUrl"
-$found = $false
-$envLines = @($envLines | ForEach-Object {
-    if ($_ -match "^OLLAMA_BASE_URL=") {
-        $found = $true
-        $replacement
-    } else {
-        $_
+function Set-EnvValue {
+    param([string]$Name, [string]$Value)
+    $script:envLines = @($script:envLines | Where-Object { $_ -notmatch "^$([regex]::Escape($Name))=" })
+    $script:envLines += "$Name=$Value"
+}
+
+Set-EnvValue "OLLAMA_BASE_URL" $ollamaUrl
+$appUrl = "http://localhost:3000"
+if ($Lan) {
+    $network = Get-NetIPConfiguration | Where-Object {
+        $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq "Up"
+    } | Select-Object -First 1
+    $lanAddress = $network.IPv4Address.IPAddress
+    if (-not $lanAddress) {
+        throw "Could not determine an active LAN IPv4 address."
     }
-})
-if (-not $found) { $envLines += $replacement }
+    $octets = $lanAddress.Split('.')
+    $lanSubnet = "$($octets[0]).$($octets[1]).$($octets[2]).0/24"
+    $appUrl = "http://$lanAddress`:3001"
+    Set-EnvValue "WEB_BIND_HOST" "127.0.0.1"
+    Set-EnvValue "API_BIND_HOST" "127.0.0.1"
+    Set-EnvValue "LAN_ADDRESS" $lanAddress
+    Set-EnvValue "LAN_SUBNET" $lanSubnet
+    Set-EnvValue "NEXT_PUBLIC_API_URL" "$appUrl/api"
+    Set-EnvValue "CORS_ORIGINS" "[`"http://localhost:3000`",`"$appUrl`"]"
+    $Build = $true
+} else {
+    Set-EnvValue "WEB_BIND_HOST" "127.0.0.1"
+    Set-EnvValue "API_BIND_HOST" "127.0.0.1"
+    Set-EnvValue "NEXT_PUBLIC_API_URL" "http://localhost:8000"
+    Set-EnvValue "CORS_ORIGINS" "[`"http://localhost:3000`"]"
+}
 Set-Content -LiteralPath $envPath -Value $envLines -Encoding utf8
 
-$composeArguments = @("compose", "up", "-d", "--wait", "--wait-timeout", "600")
-if ($Build) { $composeArguments = @("compose", "up", "-d", "--build", "--wait", "--wait-timeout", "600") }
+$composeArguments = @("compose")
+if ($Lan) { $composeArguments += @("-f", "docker-compose.yml", "-f", "docker-compose.lan.yml") }
+$composeArguments += @("up", "-d")
+if ($Build) { $composeArguments += "--build" }
+$composeArguments += @("--wait", "--wait-timeout", "600")
 & $docker @composeArguments
 if ($LASTEXITCODE -ne 0) {
     throw "Docker Compose failed with exit code $LASTEXITCODE."
@@ -139,6 +164,6 @@ if ($ready.status -ne "ready" -or $web.StatusCode -ne 200) {
     throw "The stack started but failed its final readiness check."
 }
 
-Write-Host "DocIntel AI is ready at http://localhost:3000"
+Write-Host "DocIntel AI is ready at $appUrl"
 Write-Host "API documentation: http://localhost:8000/docs"
 Write-Host "Ollama endpoint: $ollamaUrl"

@@ -1,0 +1,20 @@
+services:
+  lan-gateway:
+    image: nginx:1.27-alpine
+    environment:
+      LAN_SUBNET: ${LAN_SUBNET}
+      NGINX_ENVSUBST_FILTER: LAN_SUBNET
+    volumes:
+      - ./infra/nginx/lan.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "${LAN_ADDRESS}:3001:80"
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12

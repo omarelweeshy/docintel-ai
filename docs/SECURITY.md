@@ -11,7 +11,7 @@ Inputs to distrust: browser JSON, filenames, MIME declarations, document bytes, 
 ## Implemented controls
 
 - Server-only environment secrets; no key in browser bundle or committed env files.
-- Explicit CORS origins and loopback Compose bindings. CORS is not authentication.
+- Explicit CORS origins and loopback Compose bindings by default. The optional Windows `-Lan` mode adds one Nginx gateway bound to the active LAN address; it allowlists the detected local `/24` subnet and keeps the application and database ports loopback-bound. CORS is not authentication.
 - Generated storage names with strict validation; user filenames are display metadata only.
 - File/request size caps, extension/MIME checks, format signatures, UTF-8 validation, PDF page/text limits, DOCX decompressed size check and chunk limits.
 - No executable document operations, tools, remote URL fetching, or agents.
