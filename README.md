@@ -175,7 +175,7 @@ See [.env.example](.env.example) for every setting.
 | MAX_DOCUMENT_CHARS / MAX_PAGES | 2M / 500 | Extraction limits |
 | CHUNK_WORDS / CHUNK_OVERLAP | 350 / 50 | Replaceable word-window baseline |
 | MAX_CHUNK_CHARS / MAX_CHUNKS | 6000 / 2000 | Bound pathological text and ingestion cost |
-| TOP_K / MIN_SIMILARITY | 6 / 0.25 | Retrieval count and uncalibrated cosine cutoff |
+| TOP_K | 6 | Maximum nearest chunks supplied to grounded generation |
 | MAX_QUESTION_CHARS / MAX_CONTEXT_CHARS | 2000 / 24000 | Truncated question and source budget |
 | PROVIDER_TIMEOUT_SECONDS | 180 | Per provider call; allows local-model cold starts |
 | NEXT_PUBLIC_API_URL | localhost:8000 | Public browser endpoint, never a secret |
@@ -258,7 +258,7 @@ Uploads return **201** for a created record; inspect `status` even on success. P
 - Workspace IDs scope data but do not authenticate or authorize callers.
 - Inline ingestion may outlive browser timeouts. A process crash can leave a processing record; inspect and delete/reupload. No durable queue or automatic retry.
 - PDF blank/scanned pages fail explicitly; layout, complex tables, footnotes, DOCX headers/text boxes, and embedded images are not reliably captured.
-- Chunking is a word/character heuristic. Cosine cutoff is not a confidence score.
+- Chunking is a word/character heuristic. Nearest-neighbor retrieval has no calibrated relevance confidence score.
 - Citation membership proves source identity, not that every answer claim is entailed by a passage.
 - History is saved for review, not reused for follow-up reasoning. Ask self-contained questions.
 - Original/index deletion retains historical answers and citation snapshots. Delete conversations separately for those copies.

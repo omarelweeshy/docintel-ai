@@ -27,7 +27,6 @@ class Settings(BaseSettings):
     max_chunk_chars: int = Field(default=6000, ge=100, le=8000)
     max_chunks: int = Field(default=2000, ge=1)
     top_k: int = Field(default=6, ge=1, le=20)
-    min_similarity: float = Field(default=0.25, ge=-1, le=1)
     max_question_chars: int = Field(default=2000, ge=1, le=10000)
     max_context_chars: int = Field(default=24000, ge=1000, le=100000)
     # Cold-loading the local generation model can exceed one minute on laptop GPUs.

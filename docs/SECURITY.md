@@ -50,7 +50,7 @@ Original/index deletion leaves historical answers and citation snippets. Delete 
 - Storage files and relational rows cannot commit atomically. Cleanup failure needs operator action.
 - Database credentials in Compose are local-development defaults; the API role owns schema. Separate migration/runtime roles are future hardening.
 - No TLS/reverse proxy, backup/restore validation, CSP rollout, image-signing, SBOM or formal dependency license review.
-- Retrieval threshold and embeddings do not establish answer correctness or resistance to poisoned documents.
+- Vector proximity and top-k rank do not establish answer correctness or resistance to poisoned documents.
 - Logs include request timing/status and document IDs. Infrastructure logs and unexpected runtime tracebacks require independent retention/redaction controls.
 - UI configuration flag indicates a key is present, not that it is valid or funded.
 

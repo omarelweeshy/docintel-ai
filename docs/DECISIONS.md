@@ -156,3 +156,13 @@ larger scored dataset remains necessary before claiming measured RAG quality.
 **Alternatives:** Require a separately installed Ollama service; ship a fake deterministic demo provider; distribute native installers for every operating system.
 
 **Tradeoffs:** The first model download is several gigabytes, CPU inference is slow, and Docker GPU support varies by platform. Native installers would add signing and release-maintenance work. The self-contained path favors reproducibility and honest functionality over a small download.
+
+## 16. Top-k retrieval without a global similarity cutoff
+
+**Decision:** Return the nearest workspace-scoped chunks up to `TOP_K` without applying a fixed cosine-similarity cutoff. The grounded generator decides whether the candidates contain enough evidence and must abstain otherwise.
+
+**Why:** Embedding scores are ranking signals, not calibrated confidence. With the selected local embedding model, the valid overview query "what is this doc about" scored 0.234 while an unsupported parental-leave query scored 0.252. The former was incorrectly rejected before generation. On the real three-page document, threshold-free candidates produced a cited overview while unsupported parental-leave and general-knowledge questions both abstained.
+
+**Alternatives:** Lower the global cutoff; hard-code summary-intent phrases; train a relevance classifier; add a reranker with calibrated evaluation.
+
+**Tradeoffs:** Questions against a non-empty workspace now invoke generation even when vector similarity is low, increasing latency and compute. Citation allowlisting, the grounded prompt, structured output validation and explicit model abstention remain mandatory. A labeled evaluation set should guide a later reranker or calibrated relevance gate.

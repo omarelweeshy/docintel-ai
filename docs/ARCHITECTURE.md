@@ -51,7 +51,7 @@ Weaknesses: sentence boundaries may be cut; cross-page context can be lost; Arab
 
 ## Retrieval and generation
 
-VectorRetriever queries only ready documents in the requested workspace and optional document IDs. It checks embedding-model compatibility first. No eligible documents means no embedding call. Cosine top-k defaults to six with a 0.25 cutoff. This cutoff is **uncalibrated**, not a probability or evidence guarantee.
+VectorRetriever queries only ready documents in the requested workspace and optional document IDs. It checks embedding-model compatibility first. No eligible documents means no embedding call. Cosine top-k defaults to six. V1 does not apply a global similarity cutoff because embedding scores are uncalibrated: the real overview query "what is this doc about" scored below an unrelated parental-leave query. The grounded generator receives the nearest candidates and must explicitly abstain when they do not support an answer.
 
 RAGPipeline truncates questions and bounds retrieved context to 24000 characters. Sources are JSON-encoded under untrusted_context; text never becomes a system message. It uses no tools, execution, browsing or secret-bearing context. The system prompt asks for supplied evidence only and explicit abstention.
 

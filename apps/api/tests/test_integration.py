@@ -108,6 +108,24 @@ async def test_upload_duplicate_scope_retrieval_and_delete(db, tmp_path):
     assert await retrieval.retrieve(a.id, "retention") == []
 
 
+async def test_retrieval_returns_top_k_without_uncalibrated_score_cutoff(db, tmp_path):
+    item = await workspace(db)
+    provider = AsyncMock()
+
+    def vectors(texts, purpose="document"):
+        direction = 1.0 if purpose == "document" else -1.0
+        return [[direction] + [0.0] * 1023 for _ in texts]
+
+    provider.embed.side_effect = vectors
+    document = await service(db, tmp_path, provider).upload(item.id, file())
+    results = await VectorRetriever(
+        db, EmbeddingService(provider, 1024), Settings(top_k=1)
+    ).retrieve(item.id, "Give me an overview")
+    assert len(results) == 1
+    assert results[0].document_id == document.id
+    assert results[0].similarity == pytest.approx(-1.0)
+
+
 async def test_provider_failure_has_no_partial_vectors(db, tmp_path):
     a = await workspace(db)
     provider = AsyncMock()

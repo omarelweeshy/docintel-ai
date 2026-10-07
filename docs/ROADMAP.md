@@ -3,7 +3,7 @@
 ## Next: strengthen Phase 1
 
 1. Run `scripts/phase1_acceptance.py` after material retrieval, prompt, model, or parser changes. Preserve results when preparing a release.
-2. Expand the seven-case acceptance corpus to 30-50 labeled questions with supporting document passages and deliberate unanswerable questions. Measure recall@k, source precision, abstention and unsupported claims before changing chunk sizes or threshold.
+2. Expand the seven-case acceptance corpus to 30-50 labeled questions with supporting document passages and deliberate unanswerable questions. Measure recall@k, source precision, abstention and unsupported claims before changing chunk sizes or candidate-selection policy.
 3. Add identity and workspace memberships with cross-user API tests before hosting anything publicly.
 4. Move ingestion to a durable worker/outbox; include retries, leases, crash recovery, progress stages and idempotent reindexing.
 5. Implement OCRProvider for scanned pages in an isolated worker. Decide how to distinguish a blank page from an image-only page without rejecting ordinary mixed PDFs.

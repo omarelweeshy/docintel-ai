@@ -55,7 +55,10 @@ class VectorRetriever:
             await self.session.execute(
                 select(DocumentChunk, Document.filename, distance.label("distance"))
                 .join(Document, Document.id == DocumentChunk.document_id)
-                .where(*filters, distance <= 1 - self.settings.min_similarity)
+                # Embedding cosine scores are not calibrated confidence values. Return the
+                # nearest candidates and let the grounded generator decide whether they
+                # contain enough evidence. A fixed cutoff rejected valid overview queries.
+                .where(*filters)
                 .order_by(distance, DocumentChunk.id)
                 .limit(self.settings.top_k)
             )
