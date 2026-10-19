@@ -78,8 +78,15 @@ class System:
         self.session_factory = session_factory
         self.provider = provider
 
+    retrieval_only = False
+
     def index_key(self) -> str:
         raise NotImplementedError
+
+    def make_retriever(self, session: Any, embeddings: Any, settings: Any) -> Any:
+        from app.rag.retrieval import VectorRetriever
+
+        return VectorRetriever(session, embeddings, settings)
 
     async def ingest(self, session: Any, workspace_id: UUID, name: str, data: bytes) -> Any:
         raise NotImplementedError
@@ -128,39 +135,35 @@ class Baseline(System):
         from app.core.errors import AppError
         from app.observability.trace import Trace, bind_trace
         from app.rag.pipeline import RAGPipeline
-        from app.rag.retrieval import Source, VectorRetriever
+        from app.retrieval.query import HistoryTurn, QueryPlanner
         from app.services.embeddings import EmbeddingService
 
+        # Retrievers return RETRIEVE_K chunks; the pipeline generates from the first top_k, exactly
+        # as the API does with retrieval_depth, and keeps the full list for retrieval metrics.
         wide = self.settings.model_copy(update={"top_k": RETRIEVE_K})
-        captured: list[Source] = []
-        top_k = self.settings.top_k
-
-        class Capturing:
-            """Retrieve the top 20 once for retrieval metrics; hand the generator the first top_k,
-            which is exactly what the API's retriever returns (same ORDER BY, same LIMIT prefix)."""
-
-            def __init__(self, inner: VectorRetriever):
-                self.inner = inner
-
-            async def retrieve(
-                self, ws: UUID, q: str, document_ids: list[UUID] | None = None
-            ) -> list[Source]:
-                captured.extend(await self.inner.retrieve(ws, q, document_ids))
-                return captured[:top_k]
-
+        planner = (
+            QueryPlanner(self.provider, self.settings.history_messages)
+            if self.settings.query_planning
+            else None
+        )
+        turns = [HistoryTurn(h["role"], h["content"]) for h in history]
         trace = Trace()
         async with self.session_factory() as session:
-            retriever = VectorRetriever(
+            retriever = self.make_retriever(
                 session, EmbeddingService(self.provider, wide.embedding_dimensions), wide
             )
-            pipeline = RAGPipeline(Capturing(retriever), self.provider, self.settings)  # type: ignore[arg-type]
+            pipeline = RAGPipeline(retriever, self.provider, self.settings, planner)
             error = None
             response = None
             with bind_trace(trace), trace.stage("total"):
                 try:
-                    response = await pipeline.answer(workspace_id, question, None)
+                    if self.retrieval_only:
+                        await pipeline.retrieve(workspace_id, question, None, None, turns)
+                    else:
+                        response = await pipeline.answer(workspace_id, question, None, None, turns)
                 except AppError as exc:
                     error = f"{exc.code}: {exc.message}"
+        captured = pipeline.last_sources[:RETRIEVE_K]
         retrieved = [
             {
                 "chunk_id": str(s.chunk_id),
@@ -177,6 +180,12 @@ class Baseline(System):
             if response
             else []
         )
+        plan = pipeline.last_plan
+        extra = (
+            {"standalone_question": plan.standalone, "sub_questions": plan.sub_questions}
+            if plan and plan.planned
+            else {}
+        )
         return TurnResult(
             retrieved=retrieved,
             answer=response.answer if response else None,
@@ -184,10 +193,69 @@ class Baseline(System):
             citations=[{k: v for k, v in c.items() if k != "score"} for c in citations],
             trace=trace.to_dict(),
             error=error,
+            extra=extra,
         )
 
 
-SYSTEMS: dict[str, Callable[..., System]] = {"baseline": Baseline}
+class Hybrid(Baseline):
+    """Row 1: same chunks, retrieval = vector + keyword search fused by RRF, as configured by
+    settings (rrf_k, candidate_pool, identifier_search; override with --set for tuning)."""
+
+    name = "hybrid"
+    keyword_configs: tuple[str, ...] | None = None
+    use_vector = True
+
+    def make_retriever(self, session: Any, embeddings: Any, settings: Any) -> Any:
+        from app.retrieval.hybrid import HybridRetriever
+
+        return HybridRetriever(
+            session,
+            embeddings,
+            settings,
+            self.keyword_configs,
+            self.use_vector,  # type: ignore[arg-type]
+        )
+
+
+class HybridEnglishOnly(Hybrid):
+    name = "hybrid-english"
+    keyword_configs = ("english",)
+
+
+class HybridIdentifiers(Hybrid):
+    name = "hybrid-identifiers"
+    keyword_configs = ("english", "simple")
+
+
+class KeywordOnly(Hybrid):
+    name = "keyword"
+    use_vector = False
+
+
+class HybridPlanned(Hybrid):
+    """Row: hybrid retrieval plus query planning (follow-up rewriting, multi-part splitting)."""
+
+    name = "hybrid-planned"
+
+    def __init__(self, settings: Any, session_factory: Any, provider: Any):
+        super().__init__(
+            settings.model_copy(update={"query_planning": True}), session_factory, provider
+        )
+
+
+SYSTEMS: dict[str, Callable[..., System]] = {
+    "baseline": Baseline,
+    "hybrid": Hybrid,
+    "hybrid-english": HybridEnglishOnly,
+    "hybrid-identifiers": HybridIdentifiers,
+    "keyword": KeywordOnly,
+    "hybrid-planned": HybridPlanned,
+}
+
+
+def parse_override(item: str) -> tuple[str, Any]:
+    key, _, value = item.partition("=")
+    return key.strip(), json.loads(value) if value[:1].isdigit() or value[:1] in "[{" else value
 
 
 def read_turns(run: Path) -> list[dict[str, Any]]:
@@ -319,7 +387,7 @@ async def main_async(args: argparse.Namespace) -> Path:
 
     from app.providers.factory import create_provider
 
-    settings = make_settings()
+    settings = make_settings(**dict(parse_override(o) for o in args.set))
     if settings.ai_provider != "ollama":
         raise SystemExit("The measured eval runs on the local Ollama provider only.")
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
@@ -338,6 +406,7 @@ async def main_async(args: argparse.Namespace) -> Path:
             inner=create_provider(settings) if args.provider == "record" else None,
         )
     system = SYSTEMS[args.system](settings, session_factory, provider)
+    system.retrieval_only = args.retrieval_only
     doc_names = args.docs.split(",") if args.docs else list(DOCS)
 
     cases = load(args.dataset)
@@ -375,6 +444,8 @@ async def main_async(args: argparse.Namespace) -> Path:
         "docs": doc_names,
         "provider": args.provider,
         "retrieve_k_for_metrics": RETRIEVE_K,
+        "retrieval_only": args.retrieval_only,
+        "overrides": args.set,
         "settings": {
             k: v
             for k, v in settings.model_dump(mode="json").items()
@@ -423,6 +494,12 @@ async def main_async(args: argparse.Namespace) -> Path:
                     "extra": result.extra,
                 }
                 record["scores"] = score_turn(turn, record)
+                if args.retrieval_only:
+                    record["scores"] = {
+                        k: v
+                        for k, v in record["scores"].items()
+                        if k.startswith(("recall@", "all@", "rr", "evidence_ranks"))
+                    }
                 rows.append(record)
                 sink.write(json.dumps(record, ensure_ascii=False) + "\n")
                 sink.flush()
@@ -469,6 +546,12 @@ def main() -> None:
     parser.add_argument("--docs", default="", help="comma-separated corpus subset")
     parser.add_argument("--ids", type=Path, default=None, help="file with one case id per line")
     parser.add_argument("--out-root", type=Path, default=RUNS)
+    parser.add_argument(
+        "--set", action="append", default=[], help="settings override, e.g. --set rrf_k=30"
+    )
+    parser.add_argument(
+        "--retrieval-only", action="store_true", help="skip generation; retrieval metrics only"
+    )
     parser.add_argument(
         "--ci-subset", action="store_true", help="use the CI document and case subset"
     )

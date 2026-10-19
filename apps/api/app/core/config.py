@@ -27,6 +27,20 @@ class Settings(BaseSettings):
     max_chunk_chars: int = Field(default=6000, ge=100, le=8000)
     max_chunks: int = Field(default=2000, ge=1)
     top_k: int = Field(default=6, ge=1, le=20)
+    # "hybrid" (default) fuses vector and keyword search by RRF; "vector" is the original
+    # behaviour. Hybrid improved test-split recall@5 and answer correctness (docs/EVAL_RESULTS.md).
+    retrieval_mode: Literal["vector", "hybrid"] = "hybrid"
+    rrf_k: int = Field(default=60, ge=1, le=1000)
+    candidate_pool: int = Field(default=30, ge=1, le=200)
+    # Extra keyword list for identifier-like tokens ("800-61r3", "HC-412"). Off: it did not help
+    # on the dev split (docs/EVAL_RESULTS.md, row 1 tuning).
+    identifier_search: bool = False
+    # Retrievers return this many ranked chunks; the generator sees the first top_k. A deeper list
+    # lets multi-query fusion and evaluation work on the same ranking the API uses.
+    retrieval_depth: int = Field(default=20, ge=1, le=100)
+    # Rewrite follow-up questions using recent history and split multi-part questions.
+    query_planning: bool = False
+    history_messages: int = Field(default=6, ge=0, le=20)
     max_question_chars: int = Field(default=2000, ge=1, le=10000)
     max_context_chars: int = Field(default=24000, ge=1000, le=100000)
     # Cold-loading the local generation model can exceed one minute on laptop GPUs.

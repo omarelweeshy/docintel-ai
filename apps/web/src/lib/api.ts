@@ -50,8 +50,83 @@ export type PublicConfig = {
   max_question_chars: number;
   ai_provider: "ollama" | "openai";
   ai_configured: boolean;
+  uses_history?: boolean;
   demo?: boolean;
 };
+export type ChatAnswer = {
+  answer: string;
+  citations: Citation[];
+  insufficient_context: boolean;
+};
+export type StreamHandlers = {
+  onStage?: (stage: string) => void;
+  onDelta?: (text: string) => void;
+};
+
+/** Parse one Server-Sent Events block ("event: x" and "data: {...}" lines). */
+export function parseSseBlock(
+  block: string,
+): { event: string; data: unknown } | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  }
+  if (!data.length) return null;
+  try {
+    return { event, data: JSON.parse(data.join("\n")) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /chat/stream and dispatch events. Resolves with the validated final answer. Delta text is
+ * provisional and must be replaced by the final answer, never stored as one.
+ */
+export async function streamChat(
+  body: Record<string, unknown>,
+  handlers: StreamHandlers,
+): Promise<ChatAnswer> {
+  const response = await fetch(API + "/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok || !response.body) {
+    const parsed: unknown = await response.json().catch(() => null);
+    throw new Error(
+      errorMessage(parsed, `Request failed (${response.status}).`),
+    );
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    // SSE events end with a blank line; normalise CRLF so proxies cannot split them differently.
+    const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");
+    buffer = done ? "" : (blocks.pop() ?? "");
+    for (const block of blocks) {
+      const item = parseSseBlock(block);
+      if (!item) continue;
+      const data = item.data as Record<string, unknown>;
+      if (item.event === "stage" && typeof data.stage === "string")
+        handlers.onStage?.(data.stage);
+      else if (item.event === "delta" && typeof data.text === "string")
+        handlers.onDelta?.(data.text);
+      else if (item.event === "final") return item.data as ChatAnswer;
+      else if (item.event === "error")
+        throw new Error(
+          typeof data.message === "string" ? data.message : "Answering failed.",
+        );
+    }
+    if (done) break;
+  }
+  throw new Error("The answer stream ended unexpectedly.");
+}
 
 export function errorMessage(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null && "error" in body) {

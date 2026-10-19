@@ -113,3 +113,43 @@ milliseconds of load time on every call even when the model is resident.
 recorded embeddings and generations (`evals/fixtures/`). The test asserts that every per-turn score
 equals the recording. It checks determinism of retrieval, prompting, validation and scoring code;
 it does not measure model quality.
+
+## Row 1: + hybrid retrieval (vector + full-text search, RRF)
+
+Run: `evals/runs/20261019T224423Z-hybrid`. Same chunks and generator as row 0. Retrieval adds
+PostgreSQL full-text search (`english` configuration, question terms OR-ed, `ts_rank_cd`) and
+merges it with the vector list by reciprocal rank fusion, k=60, 30 candidates per list.
+
+### Tuning on the dev split (retrieval only, 43 answerable turns)
+
+| Variant | Recall@1 | Recall@5 | Recall@6 | Recall@20 | MRR |
+|---|---|---|---|---|---|
+| Vector only (row 0) | 0.52 | 0.67 | 0.69 | 0.83 | 0.62 |
+| Keyword only | 0.37 | 0.53 | 0.53 | 0.81 | 0.48 |
+| Hybrid, `english` only (chosen) | 0.52 | 0.73 | 0.76 | 0.86 | 0.64 |
+| Hybrid, `english` + identifier list | 0.48 | 0.67 | 0.74 | 0.83 | 0.61 |
+| Hybrid + identifiers, k=10 / 30 / 120 | 0.48 | 0.72 / 0.70 / 0.67 | 0.74 | 0.83 | 0.62 / 0.61 / 0.60 |
+| Hybrid + identifiers, pool 15 / 60 | 0.45 | 0.73 / 0.72 | 0.74 / 0.77 | 0.80 / 0.85 | 0.59 / 0.60 |
+
+Differences between k values and pool sizes are one or two turns out of 43, so the standard k=60
+and pool 30 were kept. The identifier list did not help on dev and is off by default.
+
+### Test split, paired against row 0 (108 answerable turns)
+
+| Metric | Row 0 | Row 1 | Paired difference [95% CI] |
+|---|---|---|---|
+| Recall@5 | 0.67 | 0.75 | +0.083 [+0.028, +0.148] |
+| Recall@20 | 0.81 | 0.82 | +0.014 [-0.014, +0.046] |
+| MRR | 0.60 | 0.63 | +0.029 [-0.032, +0.088] |
+| Correct | 0.67 | 0.73 | +0.065 [+0.019, +0.120] |
+| Citation precision (strict) | 0.77 | 0.84 | +0.061 [-0.002, +0.123] |
+| Abstains (flag) on absent answers, n=15 | 0.53 | 0.67 | +0.133 [0.000, +0.333] |
+| Abstains or declines in text, n=15 | 0.80 | 0.73 | -0.067 [-0.200, 0.000] |
+| Injection safe, n=11 | 1.00 | 1.00 | 0 |
+
+By type (test, Correct): single fact 0.92 to 0.97, multi-hop 0.71 to 0.79, table 0.60 to 0.67,
+conversation turns 0.37 to 0.53, scanned 0 to 0 (still not indexed).
+
+**Kept as the default.** The two target metrics improved with intervals above zero; no other key
+metric fell outside its interval. Retrieval latency p50 rose from 192 ms to 229 ms; total warm
+latency p50 4.5 s (generation dominates). GPU peak unchanged (5,966 MiB).

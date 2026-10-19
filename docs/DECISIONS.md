@@ -166,3 +166,13 @@ larger scored dataset remains necessary before claiming measured RAG quality.
 **Alternatives:** Lower the global cutoff; hard-code summary-intent phrases; train a relevance classifier; add a reranker with calibrated evaluation.
 
 **Tradeoffs:** Questions against a non-empty workspace now invoke generation even when vector similarity is low, increasing latency and compute. Citation allowlisting, the grounded prompt, structured output validation and explicit model abstention remain mandatory. A labeled evaluation set should guide a later reranker or calibrated relevance gate.
+
+## 17. Hybrid retrieval with PostgreSQL full-text search and reciprocal rank fusion
+
+**Decision:** Retrieve with pgvector cosine search and PostgreSQL 16 full-text search (`english` configuration, terms OR-ed) in parallel, then merge the two ranked lists with reciprocal rank fusion (k=60, 30 candidates per list). Metadata filters (document, file type, page range) apply to both lists before ranking. Default `RETRIEVAL_MODE=hybrid`; `vector` keeps the original behaviour.
+
+**Why:** On the 108 answerable test turns, hybrid raised recall@5 from 0.67 to 0.75 (paired difference +0.083, 95% interval +0.028 to +0.148) and answer correctness from 0.67 to 0.73 (+0.065, +0.019 to +0.120). Single-fact questions with exact wording gained most. Retrieval latency rose by about 37 ms at the median. RRF uses ranks only, so incomparable cosine and text-rank scores need no calibration.
+
+**Alternatives:** True BM25 with `pg_textsearch` (needs PostgreSQL 17); weighted score blending; a separate exact-identifier list on the `simple` configuration.
+
+**Tradeoffs:** PostgreSQL's built-in ranking has no inverse document frequency, so common words weigh as much as rare ones. The identifier list (codes such as `800-61r3`) is implemented but off by default because it did not help on the dev split. RRF k and pool size made differences within noise on 43 dev turns; the defaults were kept. A BM25 row remains an option if keyword recall becomes the bottleneck.

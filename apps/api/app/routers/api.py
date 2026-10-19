@@ -1,10 +1,13 @@
+import json
 import logging
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,8 +19,10 @@ from app.observability.trace import Trace, bind_trace
 from app.providers.interfaces import AIProvider
 from app.rag.chunking import WordChunker
 from app.rag.pipeline import RAGPipeline
-from app.rag.retrieval import VectorRetriever
+from app.rag.retrieval import build_retriever
 from app.repositories.catalog import CatalogRepository
+from app.retrieval.filters import RetrievalFilters
+from app.retrieval.query import HistoryTurn, QueryPlanner
 from app.schemas.api import (
     ChatRequest,
     ChatResponse,
@@ -66,6 +71,7 @@ async def public_config(settings: Config) -> dict[str, int | bool | str]:
         "ai_provider": settings.ai_provider,
         "ai_configured": settings.ai_provider == "ollama"
         or bool(settings.openai_api_key.get_secret_value()),
+        "uses_history": settings.query_planning and settings.history_messages > 0,
     }
 
 
@@ -243,13 +249,10 @@ async def delete_conversation(
     return Response(status_code=204)
 
 
-@router.post("/chat", response_model=ChatResponse, tags=["chat"])
-async def chat(
-    body: ChatRequest,
-    session: Session,
-    settings: Config,
-    provider: Provider,
-) -> ChatResponse:
+async def prepare_chat(
+    body: ChatRequest, session: AsyncSession, settings: Settings, provider: AIProvider
+) -> tuple[str, RAGPipeline, RetrievalFilters | None, list[HistoryTurn]]:
+    """Checks, locking and pipeline construction shared by /chat and /chat/stream."""
     repo = CatalogRepository(session)
     await repo.conversation(body.workspace_id, body.conversation_id)
     if body.document_ids:
@@ -260,34 +263,126 @@ async def chat(
         select(Conversation).where(Conversation.id == body.conversation_id).with_for_update()
     )
     question = body.question[: settings.max_question_chars]
+    filters = (
+        RetrievalFilters(
+            file_types=body.filters.file_types,
+            page_from=body.filters.page_from,
+            page_to=body.filters.page_to,
+        )
+        if body.filters
+        else None
+    )
+    history: list[HistoryTurn] = []
+    if settings.query_planning and settings.history_messages:
+        recent = await session.scalars(
+            select(Message)
+            .where(Message.conversation_id == body.conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(settings.history_messages)
+        )
+        history = [HistoryTurn(m.role, m.content) for m in reversed(list(recent))]
+    pipeline = RAGPipeline(
+        build_retriever(
+            session, EmbeddingService(provider, settings.embedding_dimensions), settings
+        ),
+        provider,
+        settings,
+        QueryPlanner(provider, settings.history_messages) if settings.query_planning else None,
+    )
+    return question, pipeline, filters, history
+
+
+async def save_exchange(
+    session: AsyncSession, conversation_id: UUID, question: str, result: ChatResponse
+) -> None:
+    user_created_at = datetime.now(UTC)
+    session.add(
+        Message(
+            conversation_id=conversation_id,
+            role="user",
+            content=question,
+            created_at=user_created_at,
+        )
+    )
+    await session.flush()
+    session.add(
+        Message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=result.answer,
+            citations=[c.model_dump(mode="json") for c in result.citations],
+            # Keep the pair ordered even if the host clock has coarse resolution.
+            created_at=max(datetime.now(UTC), user_created_at + timedelta(microseconds=1)),
+        )
+    )
+    await session.commit()
+
+
+@router.post("/chat", response_model=ChatResponse, tags=["chat"])
+async def chat(
+    body: ChatRequest,
+    session: Session,
+    settings: Config,
+    provider: Provider,
+) -> ChatResponse:
+    question, pipeline, filters, history = await prepare_chat(body, session, settings, provider)
     trace = Trace()
     with bind_trace(trace), trace.stage("total"):
-        result = await RAGPipeline(
-            VectorRetriever(
-                session, EmbeddingService(provider, settings.embedding_dimensions), settings
-            ),
-            provider,
-            settings,
-        ).answer(body.workspace_id, question, body.document_ids)
+        result = await pipeline.answer(
+            body.workspace_id, question, body.document_ids, filters, history
+        )
     # Ids, scores, timings and token counts only: no question or document text.
     logger.info("rag_trace", extra={"trace": trace.to_dict()})
-    user_created_at = datetime.now(UTC)
-    user_message = Message(
-        conversation_id=body.conversation_id,
-        role="user",
-        content=question,
-        created_at=user_created_at,
-    )
-    session.add(user_message)
-    await session.flush()
-    assistant = Message(
-        conversation_id=body.conversation_id,
-        role="assistant",
-        content=result.answer,
-        citations=[c.model_dump(mode="json") for c in result.citations],
-        # Keep the pair ordered even if the host clock has coarse resolution.
-        created_at=max(datetime.now(UTC), user_created_at + timedelta(microseconds=1)),
-    )
-    session.add(assistant)
-    await session.commit()
+    await save_exchange(session, body.conversation_id, question, result)
     return result
+
+
+def sse(event: str, data: object) -> str:
+    payload = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@router.post(
+    "/chat/stream",
+    tags=["chat"],
+    response_class=StreamingResponse,
+    description=(
+        "Server-Sent Events. 'stage' reports progress, 'delta' carries provisional answer text "
+        "that is not yet validated, 'final' carries the validated answer (same shape as /chat) "
+        "and 'error' a safe error. The exchange is saved only after a successful final event."
+    ),
+)
+async def chat_stream(
+    body: ChatRequest,
+    session: Session,
+    settings: Config,
+    provider: Provider,
+) -> StreamingResponse:
+    # Validation errors (unknown conversation or document) still return normal HTTP errors.
+    question, pipeline, filters, history = await prepare_chat(body, session, settings, provider)
+
+    async def events() -> AsyncIterator[str]:
+        trace = Trace()
+        try:
+            with bind_trace(trace), trace.stage("total"):
+                async for item in pipeline.answer_stream(
+                    body.workspace_id, question, body.document_ids, filters, history
+                ):
+                    if item.event == "final" and isinstance(item.data, ChatResponse):
+                        await save_exchange(session, body.conversation_id, question, item.data)
+                    yield sse(item.event, item.data)
+        except AppError as exc:
+            await session.rollback()
+            yield sse("error", {"code": exc.code, "message": exc.message})
+        except Exception:
+            await session.rollback()
+            logger.exception("chat_stream_failed")
+            yield sse("error", {"code": "internal_error", "message": "Answering failed."})
+        finally:
+            logger.info("rag_trace", extra={"trace": trace.to_dict()})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

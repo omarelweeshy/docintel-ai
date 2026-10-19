@@ -12,7 +12,14 @@ import {
   DEMO,
   DocumentRecord,
   PublicConfig,
+  streamChat,
 } from "@/lib/api";
+
+const STAGE_LABELS: Record<string, string> = {
+  planning: "Working out what you are asking...",
+  retrieving: "Finding evidence...",
+  generating: "Composing an answer from the evidence...",
+};
 
 export default function ChatPage() {
   const { workspaceId } = useWorkspace();
@@ -24,6 +31,9 @@ function Chat({ workspaceId }: { workspaceId: string }) {
   const [question, setQuestion] = useState("");
   const [documentId, setDocumentId] = useState("");
   const [pendingQuestion, setPendingQuestion] = useState("");
+  // Streamed text is provisional: shown dimmed and replaced by the validated saved answer.
+  const [provisional, setProvisional] = useState("");
+  const [stage, setStage] = useState("");
   const config = useQuery({
     queryKey: ["config"],
     queryFn: () => api<PublicConfig>("/config"),
@@ -65,15 +75,20 @@ function Chat({ workspaceId }: { workspaceId: string }) {
           queryKey: ["conversations", workspaceId],
         });
       }
-      await api("/chat", {
-        method: "POST",
-        body: JSON.stringify({
-          workspace_id: workspaceId,
-          conversation_id: id,
-          question: text,
-          document_ids: documentId ? [documentId] : null,
-        }),
-      });
+      const body = {
+        workspace_id: workspaceId,
+        conversation_id: id,
+        question: text,
+        document_ids: documentId ? [documentId] : null,
+      };
+      if (DEMO) {
+        await api("/chat", { method: "POST", body: JSON.stringify(body) });
+      } else {
+        await streamChat(body, {
+          onStage: setStage,
+          onDelta: (delta) => setProvisional((current) => current + delta),
+        });
+      }
       return id;
     },
     onSuccess: async (id) => {
@@ -82,8 +97,14 @@ function Chat({ workspaceId }: { workspaceId: string }) {
       });
       setQuestion("");
       setPendingQuestion("");
+      setProvisional("");
+      setStage("");
     },
-    onError: () => setPendingQuestion(""),
+    onError: () => {
+      setPendingQuestion("");
+      setProvisional("");
+      setStage("");
+    },
   });
   const remove = useMutation({
     mutationFn: (id: string) =>
@@ -250,10 +271,23 @@ function Chat({ workspaceId }: { workspaceId: string }) {
                     <div className="message-author">YOU</div>
                     <p>{pendingQuestion}</p>
                   </article>
-                  <div className="answer-loading" role="status">
-                    <span className="pulse-dot" /> Finding evidence and
-                    composing an answer...
-                  </div>
+                  {provisional ? (
+                    <article
+                      className="message assistant provisional"
+                      aria-busy="true"
+                    >
+                      <div className="message-author">
+                        DOCINTEL AI · DRAFT, CHECKING SOURCES
+                      </div>
+                      <p>{provisional}</p>
+                    </article>
+                  ) : (
+                    <div className="answer-loading" role="status">
+                      <span className="pulse-dot" />{" "}
+                      {STAGE_LABELS[stage] ??
+                        "Finding evidence and composing an answer..."}
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -287,8 +321,9 @@ function Chat({ workspaceId }: { workspaceId: string }) {
                 </button>
               </form>
               <p>
-                Answers use retrieved passages. Ask standalone questions;
-                earlier turns are saved but not used as context.
+                {config.data?.uses_history
+                  ? "Answers use retrieved passages. Follow-up questions are resolved using your recent turns."
+                  : "Answers use retrieved passages. Ask standalone questions; earlier turns are saved but not used as context."}
               </p>
             </div>
           </section>

@@ -68,6 +68,19 @@ class ReplayProvider:
         decoded = [base64.b64decode(self.embeddings[k]) for k in keys]
         return [list(struct.unpack(f"<{len(raw) // 2}e", raw)) for raw in decoded]
 
+    async def generate_structured(
+        self, system: str, user: str, schema: type[Any], purpose: str = "generate"
+    ) -> Any:
+        if schema is ModelAnswer:
+            return await self.generate(system, user)
+        key = _key(self.chat_model, schema.__name__, system, user)
+        if key not in self.generations:
+            if self.mode == "replay":
+                raise ProviderError("Replay fixture has no structured output for this prompt.")
+            result = await self.inner.generate_structured(system, user, schema, purpose)
+            self.generations[key] = result.model_dump()
+        return schema.model_validate(self.generations[key])
+
     async def generate(self, system: str, user: str) -> ModelAnswer:
         ids = [item["id"] for item in json.loads(user).get("untrusted_context", [])]
         canonical = user

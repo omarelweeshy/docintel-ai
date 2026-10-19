@@ -42,6 +42,8 @@ async def test_ci_subset_replay_matches_recording(
         docs=",".join(CI_DOCS),
         ids=CI_IDS,
         out_root=tmp_path,
+        set=[],
+        retrieval_only=False,
     )
     out = await main_async(args)
     scores = {

@@ -18,6 +18,8 @@ from app.models.entities import Document, DocumentChunk, Workspace
 from app.rag.chunking import WordChunker
 from app.rag.retrieval import VectorRetriever
 from app.repositories.catalog import CatalogRepository
+from app.retrieval.filters import RetrievalFilters
+from app.retrieval.hybrid import HybridRetriever
 from app.routers.api import delete_document, delete_workspace
 from app.services.embeddings import EmbeddingService
 from app.services.ingestion import IngestionService
@@ -162,3 +164,49 @@ async def test_workspace_delete_removes_originals_and_relational_data(db, tmp_pa
         )
         == 0
     )
+
+
+async def test_hybrid_retrieval_finds_exact_terms_the_vector_ranks_last(db, tmp_path):
+    item = await workspace(db)
+    provider = AsyncMock()
+    texts = {
+        "a.txt": b"Badge access logs are reviewed weekly by facilities staff.",
+        "b.txt": b"Visitor parking is available behind the north building.",
+        "c.txt": b"Clause HC-412: incident reports are kept seven years after closure.",
+    }
+
+    def vectors(batch, purpose="document"):
+        # The query vector is closest to a.txt and furthest from c.txt.
+        out = []
+        for text in batch:
+            if purpose == "query" or "Badge" in text:
+                out.append([1.0, 0.0] + [0.0] * 1022)
+            elif "Visitor" in text:
+                out.append([0.7, 0.7] + [0.0] * 1022)
+            else:
+                out.append([0.0, 1.0] + [0.0] * 1022)
+        return out
+
+    provider.embed.side_effect = vectors
+    ingestion = service(db, tmp_path, provider)
+    for name, data in texts.items():
+        upload = UploadFile(
+            io.BytesIO(data), filename=name, headers=Headers({"content-type": "text/plain"})
+        )
+        assert (await ingestion.upload(item.id, upload)).status == "ready"
+        await db.refresh(item)
+    settings = Settings(top_k=3, retrieval_mode="hybrid")
+    embeddings = EmbeddingService(provider, 1024)
+    vector_only = await VectorRetriever(db, embeddings, settings).retrieve(
+        item.id, "How long are incident reports kept?"
+    )
+    assert vector_only[-1].filename == "c.txt"
+    hybrid = await HybridRetriever(db, embeddings, settings).retrieve(
+        item.id, "How long are incident reports kept?"
+    )
+    # Keyword search ranks c.txt first, the vector ranks it last; fused, it is no longer last.
+    assert [s.filename for s in hybrid].index("c.txt") < 2
+    only_pdf = await HybridRetriever(db, embeddings, settings).retrieve(
+        item.id, "incident reports", filters=RetrievalFilters(file_types=["pdf"])
+    )
+    assert only_pdf == []

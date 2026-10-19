@@ -1,6 +1,9 @@
+import json
+from collections.abc import AsyncIterator
 from typing import Any, Literal
 
 import httpx
+from pydantic import BaseModel
 
 from app.core.config import Settings
 from app.core.errors import ProviderError
@@ -69,30 +72,62 @@ class OllamaProvider:
             raise ProviderError("Local embedding model returned invalid vectors.")
         return embeddings
 
+    def _chat_body(
+        self, system: str, user: str, schema: type[BaseModel], stream: bool
+    ) -> dict[str, Any]:
+        json_schema = schema.model_json_schema()
+        return {
+            "model": self.settings.chat_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": f"Return JSON matching this schema: {json_schema}\n\n{user}",
+                },
+            ],
+            "format": json_schema,
+            "stream": stream,
+            "think": False,
+            "options": {"temperature": 0, "num_ctx": self.settings.ollama_num_ctx},
+        }
+
     async def generate(self, system: str, user: str) -> ModelAnswer:
-        schema = ModelAnswer.model_json_schema()
-        data = await self._post(
-            "/api/chat",
-            {
-                "model": self.settings.chat_model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {
-                        "role": "user",
-                        "content": f"Return JSON matching this schema: {schema}\n\n{user}",
-                    },
-                ],
-                "format": schema,
-                "stream": False,
-                "think": False,
-                "options": {"temperature": 0, "num_ctx": self.settings.ollama_num_ctx},
-            },
-        )
-        record_usage(data, "generate")
+        return await self.generate_structured(system, user, ModelAnswer)
+
+    async def generate_structured[M: BaseModel](
+        self, system: str, user: str, schema: type[M], purpose: str = "generate"
+    ) -> M:
+        data = await self._post("/api/chat", self._chat_body(system, user, schema, stream=False))
+        record_usage(data, purpose)
         try:
             message = data["message"]
             if not isinstance(message, dict) or not isinstance(message.get("content"), str):
                 raise ValueError("missing content")
-            return ModelAnswer.model_validate_json(message["content"])
+            return schema.model_validate_json(message["content"])
         except (KeyError, ValueError) as exc:
             raise ProviderError("Local model returned an invalid grounded answer.") from exc
+
+    async def generate_stream(self, system: str, user: str) -> AsyncIterator[str]:
+        """Stream the raw JSON text of a ModelAnswer as Ollama produces it. The caller parses
+        and validates the complete text; partial text is only ever shown as provisional."""
+        body = self._chat_body(system, user, ModelAnswer, stream=True)
+        try:
+            async with self.client.stream("POST", "/api/chat", json=body) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    data = json.loads(line)
+                    if not isinstance(data, dict):
+                        raise ValueError("Ollama returned a non-object stream line")
+                    if data.get("error"):
+                        raise ValueError("Ollama stream error")
+                    content = (data.get("message") or {}).get("content")
+                    if isinstance(content, str) and content:
+                        yield content
+                    if data.get("done"):
+                        record_usage(data, "generate")
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(
+                "Local AI is unavailable. Start Ollama and pull the configured models."
+            ) from exc

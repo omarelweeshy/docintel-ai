@@ -1347,3 +1347,9 @@ progress {
     width: 100%;
   }
 }
+
+/* Streamed draft: not yet validated, so visibly provisional. */
+.message.provisional p {
+  opacity: 0.6;
+  font-style: italic;
+}
