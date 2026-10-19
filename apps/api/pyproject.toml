@@ -21,6 +21,8 @@ target-version = "py312"
 line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+[tool.ruff.lint.isort]
+known-first-party = ["app", "evals"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -30,5 +32,7 @@ module = ["pgvector.*", "pymupdf.*"]
 ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "../../evals/tests"]
+# The eval harness lives at the repository root and imports the app package.
+pythonpath = ["../.."]
 markers = ["integration: requires TEST_DATABASE_URL pointing to disposable pgvector database"]

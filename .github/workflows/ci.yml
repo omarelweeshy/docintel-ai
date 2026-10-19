@@ -44,6 +44,7 @@ jobs:
           cache-dependency-glob: apps/api/uv.lock
       - run: uv sync --frozen
       - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run ruff check ../../evals && uv run ruff format --check ../../evals
       - run: uv run mypy app
       - run: uv run alembic upgrade head && uv run alembic check
       - run: uv run pytest -q
