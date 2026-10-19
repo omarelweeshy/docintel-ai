@@ -13,7 +13,8 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { useWorkspace } from "./providers";
-import { api, Workspace } from "@/lib/api";
+import { api, DEMO, Workspace } from "@/lib/api";
+import { resetDemo } from "@/demo/server";
 
 const links = [
   { href: "/", name: "Overview", icon: LayoutDashboard },
@@ -132,7 +133,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
         <div className="local-notice">
-          <span className="status-dot" /> Local development{" "}
+          <span className="status-dot" />{" "}
+          {DEMO ? "Public demo" : "Local development"}{" "}
           <span className="text-slate-500">v0.1</span>
         </div>
       </aside>
@@ -148,10 +150,39 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <span className="topbar-note">Document intelligence platform</span>
         </header>
         <main>
+          {DEMO && (
+            <div className="demo-banner">
+              <div>
+                <strong>Interactive portfolio demo</strong>
+                <span>
+                  Fictional sample documents. Retrieval runs in your browser and
+                  answers are extracted passages; no language model is called.
+                  Changes stay in this browser.
+                </span>
+              </div>
+              <a
+                href="https://github.com/omarelweeshy/docintel-ai"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Source &amp; architecture <ArrowUpRight size={13} />
+              </a>
+              <button
+                className="button secondary"
+                onClick={() => {
+                  resetDemo();
+                  window.location.assign("/");
+                }}
+              >
+                Reset demo
+              </button>
+            </div>
+          )}
           {error && (
             <div className="alert" role="alert">
-              Cannot connect to the API. Start the backend and database, then
-              refresh. {error.message}
+              {DEMO
+                ? `The demo could not load. ${error.message}`
+                : `Cannot connect to the API. Start the backend and database, then refresh. ${error.message}`}
             </div>
           )}
           {children}

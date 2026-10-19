@@ -1,4 +1,8 @@
+import { demoDownloadUrl, demoRequest, demoUpload } from "@/demo/server";
+
 export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Public demo build: requests are answered in the browser (see src/demo). Set at build time.
+export const DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === "1";
 export type Workspace = { id: string; name: string; created_at: string };
 export type DocumentRecord = {
   id: string;
@@ -46,6 +50,7 @@ export type PublicConfig = {
   max_question_chars: number;
   ai_provider: "ollama" | "openai";
   ai_configured: boolean;
+  demo?: boolean;
 };
 
 export function errorMessage(body: unknown, fallback: string): string {
@@ -62,6 +67,7 @@ export function errorMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  if (DEMO) return demoRequest<T>(path, init);
   const response = await fetch(API + path, {
     ...init,
     headers: {
@@ -91,6 +97,7 @@ export function uploadDocument(
   file: File,
   progress: (value: number) => void,
 ): Promise<DocumentRecord> {
+  if (DEMO) return demoUpload(workspaceId, file, progress);
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", API + "/documents");
@@ -123,6 +130,10 @@ export function uploadDocument(
     request.send(form);
   });
 }
+export const downloadUrl = (documentId: string, workspaceId: string) =>
+  DEMO
+    ? demoDownloadUrl(documentId)
+    : `${API}/documents/${documentId}/download?workspace_id=${workspaceId}`;
 export const formatBytes = (bytes: number) =>
   bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`

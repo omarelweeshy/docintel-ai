@@ -9,6 +9,7 @@ import {
   api,
   Conversation,
   ConversationDetail,
+  DEMO,
   DocumentRecord,
   PublicConfig,
 } from "@/lib/api";
@@ -207,11 +208,18 @@ function Chat({ workspaceId }: { workspaceId: string }) {
                     Every supported answer includes inspectable sources.
                   </p>
                   <div className="question-suggestions">
-                    {[
-                      "What are the key requirements?",
-                      "Who is responsible for implementation?",
-                      "What deadlines are mentioned?",
-                    ].map((text) => (
+                    {(DEMO
+                      ? [
+                          "How quickly must a suspected Northstar incident be reported?",
+                          "How long are privileged vendor session recordings retained?",
+                          "What is the company's parental leave allowance?",
+                        ]
+                      : [
+                          "What are the key requirements?",
+                          "Who is responsible for implementation?",
+                          "What deadlines are mentioned?",
+                        ]
+                    ).map((text) => (
                       <button key={text} onClick={() => setQuestion(text)}>
                         {text}
                         <ArrowUp size={14} />

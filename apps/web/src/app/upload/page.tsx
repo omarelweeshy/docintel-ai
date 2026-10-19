@@ -76,13 +76,20 @@ export default function UploadPage() {
         title="Upload documents"
         description="Bring your source material into a workspace. We will take care of the indexing."
       />
-      {config.data && !config.data.ai_configured && (
+      {config.data?.demo && (
+        <div className="notice">
+          Public demo: TXT files are parsed, chunked and indexed in your browser
+          and stay in this browser only. PDF and DOCX parsing runs in the
+          self-hosted edition; the sample PDF and DOCX are already indexed.
+        </div>
+      )}
+      {config.data && !config.data.demo && !config.data.ai_configured && (
         <div className="notice">
           AI processing is not configured. Set the selected provider credentials
           before uploading; otherwise documents will be marked failed.
         </div>
       )}
-      {config.data?.ai_provider === "ollama" && (
+      {!config.data?.demo && config.data?.ai_provider === "ollama" && (
         <div className="notice">
           Local AI mode is selected. Ollama must be running with the configured
           chat and embedding models before documents can be indexed.
@@ -132,7 +139,10 @@ export default function UploadPage() {
                 Browse files
               </button>
               <small>
-                PDF, DOCX, TXT · Up to {Math.round(maxBytes / 1024 / 1024)} MB
+                {config.data?.demo
+                  ? "TXT in the public demo"
+                  : "PDF, DOCX, TXT"}{" "}
+                · Up to {Math.round(maxBytes / 1024 / 1024)} MB
               </small>
               <input
                 ref={input}

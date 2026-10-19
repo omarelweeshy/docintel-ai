@@ -1,6 +1,6 @@
 "use client";
 import { FileText, ChevronDown, Download } from "lucide-react";
-import { API, Citation } from "@/lib/api";
+import { Citation, downloadUrl } from "@/lib/api";
 export function Citations({
   citations,
   workspaceId,
@@ -29,9 +29,7 @@ export function Citations({
           </summary>
           <div className="citation-content">
             <blockquote>{citation.snippet}</blockquote>
-            <a
-              href={`${API}/documents/${citation.document_id}/download?workspace_id=${workspaceId}`}
-            >
+            <a href={downloadUrl(citation.document_id, workspaceId)}>
               <Download size={14} />
               Download source document
             </a>

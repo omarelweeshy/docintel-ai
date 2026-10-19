@@ -11,7 +11,7 @@ import {
   PageHeader,
   Status,
 } from "@/components/ui";
-import { API, api, DocumentRecord } from "@/lib/api";
+import { api, DocumentRecord, downloadUrl } from "@/lib/api";
 
 export default function DocumentsPage() {
   const { workspaceId } = useWorkspace();
@@ -128,7 +128,7 @@ function Documents({ workspaceId }: { workspaceId: string }) {
                           className="icon-button"
                           title="Download original"
                           aria-label={`Download ${doc.filename}`}
-                          href={`${API}/documents/${doc.id}/download?workspace_id=${workspaceId}`}
+                          href={downloadUrl(doc.id, workspaceId)}
                         >
                           <Download size={17} />
                         </a>
