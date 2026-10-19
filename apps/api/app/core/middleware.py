@@ -14,7 +14,7 @@ class JsonFormatter(logging.Formatter):
                 "event": record.getMessage(),
                 **{
                     k: getattr(record, k)
-                    for k in ("request_id", "status", "duration_ms", "document_id")
+                    for k in ("request_id", "status", "duration_ms", "document_id", "trace")
                     if hasattr(record, k)
                 },
             }

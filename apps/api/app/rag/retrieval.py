@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.models.entities import Document, DocumentChunk
+from app.observability.trace import Candidate, current_trace, traced_stage
 from app.services.embeddings import EmbeddingService
 
 
@@ -49,20 +50,27 @@ class VectorRetriever:
             raise AppError(
                 "reindex_required", "Embedding model changed. Reindex documents first.", 409
             )
-        vector = (await self.embeddings.embed([question], "query"))[0]
+        with traced_stage("embed_query"):
+            vector = (await self.embeddings.embed([question], "query"))[0]
         distance = DocumentChunk.embedding.cosine_distance(vector)
-        rows = (
-            await self.session.execute(
-                select(DocumentChunk, Document.filename, distance.label("distance"))
-                .join(Document, Document.id == DocumentChunk.document_id)
-                # Embedding cosine scores are not calibrated confidence values. Return the
-                # nearest candidates and let the grounded generator decide whether they
-                # contain enough evidence. A fixed cutoff rejected valid overview queries.
-                .where(*filters)
-                .order_by(distance, DocumentChunk.id)
-                .limit(self.settings.top_k)
-            )
-        ).all()
+        with traced_stage("vector_search"):
+            rows = (
+                await self.session.execute(
+                    select(DocumentChunk, Document.filename, distance.label("distance"))
+                    .join(Document, Document.id == DocumentChunk.document_id)
+                    # Embedding cosine scores are not calibrated confidence values. Return the
+                    # nearest candidates and let the grounded generator decide whether they
+                    # contain enough evidence. A fixed cutoff rejected valid overview queries.
+                    .where(*filters)
+                    .order_by(distance, DocumentChunk.id)
+                    .limit(self.settings.top_k)
+                )
+            ).all()
+        if (trace := current_trace()) is not None:
+            trace.candidates["vector"] = [
+                Candidate(str(chunk.id), rank, round(1 - score, 4))
+                for rank, (chunk, _, score) in enumerate(rows, 1)
+            ]
         return [
             Source(chunk.id, chunk.document_id, filename, chunk.page_number, chunk.text, 1 - score)
             for chunk, filename, score in rows

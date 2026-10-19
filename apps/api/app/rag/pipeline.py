@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app.core.config import Settings
 from app.core.errors import ProviderError
+from app.observability.trace import traced_stage
 from app.providers.interfaces import GenerationProvider
 from app.rag.retrieval import Retriever, Source
 from app.schemas.api import ChatResponse, Citation, ModelAnswer
@@ -51,7 +52,8 @@ class RAGPipeline:
         self, workspace_id: UUID, question: str, document_ids: list[UUID] | None = None
     ) -> ChatResponse:
         question = question[: self.settings.max_question_chars]
-        retrieved = await self.retriever.retrieve(workspace_id, question, document_ids)
+        with traced_stage("retrieve"):
+            retrieved = await self.retriever.retrieve(workspace_id, question, document_ids)
         sources: list[Source] = []
         remaining = self.settings.max_context_chars
         for source in retrieved:
@@ -70,7 +72,8 @@ class RAGPipeline:
             ensure_ascii=False,
         )
         try:
-            output = await self.generator.generate(SYSTEM, payload)
+            with traced_stage("generate"):
+                output = await self.generator.generate(SYSTEM, payload)
             # Validate even if a custom adapter did not use a schema-aware SDK.
             output = ModelAnswer.model_validate(output)
         except ProviderError:

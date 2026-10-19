@@ -4,9 +4,24 @@ import httpx
 
 from app.core.config import Settings
 from app.core.errors import ProviderError
+from app.observability.trace import current_trace
 from app.schemas.api import ModelAnswer
 
 QUERY_INSTRUCTION = "Instruct: Given a user question, retrieve passages that answer it.\nQuery: "
+
+
+def record_usage(data: dict[str, Any], kind: str) -> None:
+    """Copy Ollama's token counts and model load time into the bound trace, if any."""
+    trace = current_trace()
+    if trace is None:
+        return
+    for field, suffix in (("prompt_eval_count", "prompt"), ("eval_count", "output")):
+        if isinstance(value := data.get(field), int):
+            trace.add_tokens(f"{kind}_{suffix}", value)
+    if isinstance(load := data.get("load_duration"), int) and load > 0:
+        # Nanoseconds. Large values mean a cold model load, which latency reports must show.
+        key = f"{kind}_load_ms"
+        trace.attributes[key] = round(trace.attributes.get(key, 0.0) + load / 1e6, 1)
 
 
 class OllamaProvider:
@@ -48,6 +63,7 @@ class OllamaProvider:
                 "truncate": False,
             },
         )
+        record_usage(data, "embed")
         embeddings = data.get("embeddings")
         if not isinstance(embeddings, list):
             raise ProviderError("Local embedding model returned invalid vectors.")
@@ -72,6 +88,7 @@ class OllamaProvider:
                 "options": {"temperature": 0, "num_ctx": self.settings.ollama_num_ctx},
             },
         )
+        record_usage(data, "generate")
         try:
             message = data["message"]
             if not isinstance(message, dict) or not isinstance(message.get("content"), str):

@@ -127,23 +127,22 @@ Use Docker Desktop with WSL integration, or run Docker Engine inside WSL. Window
 
 ## Native development
 
-Python **3.12**, Node **22**, PostgreSQL **16** with pgvector are the reference versions. Linux lock files include uvloop and target Docker/CI; Windows developers can install from pyproject.
+Python **3.12**, Node **22**, PostgreSQL **16** with pgvector are the reference versions. Python dependencies are managed with [uv](https://docs.astral.sh/uv/); `apps/api/uv.lock` is the single lock file for Docker, CI and native runs on Linux and Windows.
 
 Start only the database:
 
 ```sh
 docker compose up -d db
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r apps/api/requirements-dev.lock
-pip install --no-deps -e apps/api
 cd apps/api
+uv sync
 # Copy the root .env.example to apps/api/.env and configure it.
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000 --no-access-log
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --port 8000 --no-access-log
 ```
 
-On Windows, activate `.venv\Scripts\Activate.ps1` and use `python -m pip install -e "./apps/api[dev]"` from the root. Python settings read `.env` from the process working directory. The root `.env` is for Compose; native API runs from `apps/api`.
+The commands are the same in PowerShell. Python settings read `.env` from the process working directory. The root `.env` is for Compose; native API runs from `apps/api`.
+
+Host ports are configurable with `DB_PORT`, `API_PORT` and `WEB_PORT` in the root `.env` (defaults 5432, 8000, 3000), so a second checkout can run beside the first with its own `COMPOSE_PROJECT_NAME`.
 
 In a second terminal:
 
@@ -191,10 +190,10 @@ No test requires paid API calls.
 
 ```sh
 cd apps/api
-ruff check .
-ruff format --check .
-mypy app
-pytest -q
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy app
+uv run pytest -q
 ```
 
 Without `TEST_DATABASE_URL`, database integration tests are explicitly skipped. To run them, use a **disposable** PostgreSQL database with pgvector:
@@ -202,9 +201,9 @@ Without `TEST_DATABASE_URL`, database integration tests are explicitly skipped. 
 ```sh
 export DATABASE_URL=postgresql+asyncpg://docintel:docintel@localhost:5432/docintel_test
 export TEST_DATABASE_URL="$DATABASE_URL"
-alembic upgrade head
-alembic check
-pytest -q
+uv run alembic upgrade head
+uv run alembic check
+uv run pytest -q
 ```
 
 PowerShell environment assignment: `$env:TEST_DATABASE_URL = $env:DATABASE_URL`.

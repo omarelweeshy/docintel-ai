@@ -12,6 +12,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.core.errors import AppError
 from app.models.entities import Conversation, Document, Message, Workspace
+from app.observability.trace import Trace, bind_trace
 from app.providers.interfaces import AIProvider
 from app.rag.chunking import WordChunker
 from app.rag.pipeline import RAGPipeline
@@ -259,13 +260,17 @@ async def chat(
         select(Conversation).where(Conversation.id == body.conversation_id).with_for_update()
     )
     question = body.question[: settings.max_question_chars]
-    result = await RAGPipeline(
-        VectorRetriever(
-            session, EmbeddingService(provider, settings.embedding_dimensions), settings
-        ),
-        provider,
-        settings,
-    ).answer(body.workspace_id, question, body.document_ids)
+    trace = Trace()
+    with bind_trace(trace), trace.stage("total"):
+        result = await RAGPipeline(
+            VectorRetriever(
+                session, EmbeddingService(provider, settings.embedding_dimensions), settings
+            ),
+            provider,
+            settings,
+        ).answer(body.workspace_id, question, body.document_ids)
+    # Ids, scores, timings and token counts only: no question or document text.
+    logger.info("rag_trace", extra={"trace": trace.to_dict()})
     user_created_at = datetime.now(UTC)
     user_message = Message(
         conversation_id=body.conversation_id,

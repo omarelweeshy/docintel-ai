@@ -1,0 +1,49 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /apps/api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # FastAPI, Starlette, Pydantic and the ASGI server move together.
+      web-framework:
+        patterns: ["fastapi", "starlette", "pydantic", "pydantic-*", "uvicorn"]
+      database:
+        patterns: ["sqlalchemy", "asyncpg", "alembic", "pgvector"]
+      # Parsers change extracted text, so update them in one reviewed PR and re-run the eval.
+      parsers:
+        patterns: ["pymupdf", "python-docx"]
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Next.js, React and their types move together.
+      framework:
+        patterns: ["next", "eslint-config-next", "react", "react-dom", "@types/react", "@types/react-dom"]
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/web]
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      base-images:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
