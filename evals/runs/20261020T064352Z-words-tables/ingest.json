@@ -1,0 +1,106 @@
+{
+  "docs": [
+    {
+      "doc": "nist-sp-800-61r3.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 112,
+      "pages": 48,
+      "seconds": 18.8
+    },
+    {
+      "doc": "nist-cswp-29-csf-2.0.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 45,
+      "pages": 32,
+      "seconds": 5.24
+    },
+    {
+      "doc": "nist-sp-800-40r4.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 47,
+      "pages": 28,
+      "seconds": 5.73
+    },
+    {
+      "doc": "nist-sp-800-63b-4.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 244,
+      "pages": 129,
+      "seconds": 25.24
+    },
+    {
+      "doc": "cisa-stopransomware-guide.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 54,
+      "pages": 31,
+      "seconds": 5.73
+    },
+    {
+      "doc": "halvorsen-records-retention-schedule.docx",
+      "status": "ready",
+      "error": null,
+      "chunks": 5,
+      "pages": null,
+      "seconds": 0.3
+    },
+    {
+      "doc": "corvid-oncall-runbook.txt",
+      "status": "ready",
+      "error": null,
+      "chunks": 2,
+      "pages": null,
+      "seconds": 0.14
+    },
+    {
+      "doc": "scan-kestrel-incident-memo.pdf",
+      "status": "failed",
+      "error": "Page 1 has no extractable text. OCR is required (blank pages must also be removed in V1).",
+      "chunks": 0,
+      "pages": null,
+      "seconds": 0.02
+    },
+    {
+      "doc": "scan-ashford-hosting-sla.pdf",
+      "status": "failed",
+      "error": "Page 1 has no extractable text. OCR is required (blank pages must also be removed in V1).",
+      "chunks": 0,
+      "pages": null,
+      "seconds": 0.02
+    },
+    {
+      "doc": "northstar-incident-response-handbook.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 6,
+      "pages": 3,
+      "seconds": 0.47
+    },
+    {
+      "doc": "asteron-vendor-access-standard.docx",
+      "status": "ready",
+      "error": null,
+      "chunks": 3,
+      "pages": null,
+      "seconds": 0.2
+    },
+    {
+      "doc": "meridian-data-export-policy.txt",
+      "status": "ready",
+      "error": null,
+      "chunks": 1,
+      "pages": null,
+      "seconds": 0.1
+    }
+  ],
+  "gpu": {
+    "samples": 6,
+    "min_mib": 5914,
+    "p50_mib": 5914,
+    "peak_mib": 5914
+  }
+}

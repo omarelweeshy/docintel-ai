@@ -4,22 +4,38 @@ A production-oriented, self-hosted document intelligence and retrieval-augmented
 
 [![CI](https://github.com/omarelweeshy/docintel-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/omarelweeshy/docintel-ai/actions/workflows/ci.yml)
 
-This Phase 1 implementation focuses on an understandable, tested RAG foundation. It is **not production-ready**: authentication, access control, durable background processing, and deployment hardening are deferred. The public release gates and target hosting layout are tracked in [PRODUCTION_PLAN](docs/PRODUCTION_PLAN.md).
+Retrieval and answering changes are measured against a 157-case evaluation set before they become defaults; see [EVAL_RESULTS](docs/EVAL_RESULTS.md). It is **not production-ready**: authentication, access control and deployment hardening are deferred. The public release gates and target hosting layout are tracked in [PRODUCTION_PLAN](docs/PRODUCTION_PLAN.md).
 
 ## What works
 
-- Create/select workspaces; dashboard counts and recent documents; API-level workspace cleanup.
-- Validate uploads, SHA-256 duplicate detection per workspace, generated storage names.
-- Parse selectable-text PDFs, DOCX body paragraphs/tables, and UTF-8 TXT.
-- Page-preserving chunks, local Qwen embeddings, PostgreSQL cosine search.
-- Workspace-scoped retrieval, optional document filter, configurable top-k.
-- Structured grounded responses; source identifiers validated against retrieved passages.
-- Persist conversations and citation snapshots; inspect filename/page/passage.
-- Delete originals and database chunks/vectors; delete conversations separately.
-- Local Ollama is the default; OpenAI remains an optional provider adapter.
-- Docker Compose, Alembic, Ruff, strict mypy/TypeScript, automated tests and GitHub Actions.
+- Workspaces, uploads with validation and per-workspace SHA-256 duplicate detection.
+- Parsing of selectable-text PDFs, DOCX (paragraphs and tables) and UTF-8 TXT. An optional structure-aware parser (tables as rows, headings, watermark and running-header removal) exists behind `CHUNKING`.
+- **Hybrid retrieval**: pgvector cosine search plus PostgreSQL full-text search, merged by reciprocal rank fusion; filters for document, file type and page range.
+- **Follow-up questions**: recent turns are used to rewrite a follow-up into a standalone question before retrieval.
+- Grounded, schema-constrained answers with validated citations; optional **sentence-level citations** with highlighted source spans and a check that flags numbers missing from the cited passage.
+- **Streaming** answers over Server-Sent Events (`POST /chat/stream`) with provisional text replaced by the validated answer.
+- **Durable ingestion**: a job table and worker with leases, retries, crash recovery, progress and reindexing (`INGESTION_MODE=queue`, the Compose default).
+- Per-request traces (stage timings, tokens, model load time, retrieval candidates) without question or document text.
+- An evaluation harness with 157 cases (single fact, tables, scanned pages, multi-hop, unanswerable, prompt injection, conversations) and an ablation table with confidence intervals.
+- Local Ollama by default; the OpenAI adapter still works.
 
-No OCR implementation, autonomous agents, LangGraph, hybrid retrieval, reranking, evaluation framework, streaming, authentication, or Azure deployment is claimed.
+Not implemented: OCR for scanned PDFs, a reranker and an NLI claim verifier (each needs a model download that has not been approved yet), authentication, and cloud deployment.
+
+## Measured quality (test split, local models)
+
+| Row | Correct answers | Recall@5 | Notes |
+|---|---|---|---|
+| Baseline (origin/main) | 0.67 | 0.67 | vector search, 350-word windows |
+| + hybrid retrieval | 0.73 | 0.75 | kept: both intervals above zero |
+| + follow-up rewriting | 0.74 | 0.74 | kept: follow-ups 8 to 11 of 13 |
+| + structure chunking | 0.69 | 0.69 | not kept: tables up, prose down |
+| + table-row chunks | 0.76 | 0.75 | not kept yet: table gain interval touches zero |
+| + sentence citations | 0.72 | 0.75 | opt-in: fewer explicit abstentions |
+
+The last three rows are each added to the follow-up rewriting row, not to each other. 108 answerable test turns; 95% intervals, per-type results, latency and memory are in
+[EVAL_RESULTS](docs/EVAL_RESULTS.md). Scanned-page questions still score 0 (no OCR). Measured on an
+RTX 3060 Laptop GPU (6 GB) with `qwen3.5:4b` and `qwen3-embedding:0.6b`: warm answers take about
+4.6 s at the median, of which retrieval is about 0.2 s.
 
 ## Architecture
 
@@ -176,11 +192,19 @@ See [.env.example](.env.example) for every setting.
 | MAX_CHUNK_CHARS / MAX_CHUNKS | 6000 / 2000 | Bound pathological text and ingestion cost |
 | TOP_K | 6 | Maximum nearest chunks supplied to grounded generation |
 | MAX_QUESTION_CHARS / MAX_CONTEXT_CHARS | 2000 / 24000 | Truncated question and source budget |
+| RETRIEVAL_MODE | hybrid | `hybrid` (vector + full-text, RRF) or `vector` |
+| RRF_K / CANDIDATE_POOL / RETRIEVAL_DEPTH | 60 / 30 / 20 | Fusion constant, candidates per list, ranked chunks kept |
+| QUERY_PLANNING / HISTORY_MESSAGES | true / 6 | Rewrite follow-ups using recent messages |
+| QUERY_DECOMPOSITION | false | Split multi-part questions (hurt in evaluation) |
+| CHUNKING / CHUNK_TARGET_WORDS | words / 260 | `words`, `structure` or `words_tables`; changes need a reindex |
+| ANSWER_FORMAT | answer | `sentences` for sentence-level citations and support checks |
+| INGESTION_MODE | inline (Compose: queue) | `queue` needs the worker: `python -m app.worker` |
+| JOB_MAX_ATTEMPTS / JOB_LEASE_SECONDS | 3 / 120 | Retry limit and worker lease |
 | PROVIDER_TIMEOUT_SECONDS | 180 | Per provider call; allows local-model cold starts |
 | NEXT_PUBLIC_API_URL | localhost:8000 | Public browser endpoint, never a secret |
 
-Use an embedding model supporting the configured dimensions. Delete and reupload is the V1
-reindex procedure. The migration preserves the former 1536-dimension vectors in a legacy column;
+Use an embedding model supporting the configured dimensions. After changing the embedding model
+or `CHUNKING`, call `POST /workspaces/{id}/reindex` with the worker running. The migration preserves the former 1536-dimension vectors in a legacy column;
 the retrieval model guard refuses to mix models. Local model quality and latency still need
 evaluation on a labeled DocIntel dataset.
 
@@ -242,29 +266,31 @@ CI runs all gates, migration/schema comparison, migration downgrade/upgrade, and
 | GET, POST /workspaces | Workspace listing/creation |
 | GET /workspaces/{id}/stats | Document states and chunk count |
 | GET /documents?workspace_id=... | Paginated document list (offset/limit) |
-| POST /documents | Multipart workspace_id + file; inline ingestion |
+| POST /documents | Multipart workspace_id + file; 201 inline, or 202 with a job in queue mode |
+| GET /documents/{id}/job?workspace_id=... | Ingestion job status, stage, progress, attempts |
+| POST /workspaces/{id}/reindex | Queue documents built with another chunker or embedding model |
 | GET /documents/{id}?workspace_id=... | Document metadata |
 | GET /documents/{id}/download?workspace_id=... | Original attachment |
 | DELETE /documents/{id}?workspace_id=... | Delete original and index |
 | GET, POST /conversations | List/create conversation |
 | GET, DELETE /conversations/{id}?workspace_id=... | History or conversation deletion |
-| POST /chat | workspace_id, conversation_id, question, optional document_ids |
+| POST /chat | workspace_id, conversation_id, question, optional document_ids and filters |
+| POST /chat/stream | Same body; Server-Sent Events: stage, delta (provisional), final, error |
 
 Uploads return **201** for a created record; inspect `status` even on success. Parsing/provider failures after metadata creation return a failed document record. Invalid type: 415; size: 413; malformed input: 422; duplicate: 409; missing scoped resource: 404; provider/database failures: 503. Errors include a generated request ID.
 
 ## Current limitations
 
 - Workspace IDs scope data but do not authenticate or authorize callers.
-- Inline ingestion may outlive browser timeouts. A process crash can leave a processing record; inspect and delete/reupload. No durable queue or automatic retry.
-- PDF blank/scanned pages fail explicitly; layout, complex tables, footnotes, DOCX headers/text boxes, and embedded images are not reliably captured.
-- Chunking is a word/character heuristic. Nearest-neighbor retrieval has no calibrated relevance confidence score.
-- Citation membership proves source identity, not that every answer claim is entailed by a passage.
-- History is saved for review, not reused for follow-up reasoning. Ask self-contained questions.
-- Original/index deletion retains historical answers and citation snapshots. Delete conversations separately for those copies.
-- No malware scanning, quotas, rate limiting, parser sandbox, full observability, or retention policy.
-- Document-filter picker shows up to 100 recent documents; workspace-wide retrieval covers all ready documents.
-- No labeled quality benchmark yet; local answer speed varies with GPU power and document size.
+- Scanned or image-only PDF pages fail with "OCR is required".
+- The default parser still garbles some PDF tables; the structure-aware options exist but did not pass the evaluation's keep rule.
+- Sentence support checks are lexical: they catch missing numbers, not paraphrased contradictions. Their error rate against human review is not measured yet.
+- The model sometimes answers an unanswerable question with a neighbouring fact (4 of 20 unanswerable cases in the default configuration).
+- PostgreSQL's built-in full-text ranking has no inverse document frequency (rare words do not weigh more).
+- Original/index deletion keeps historical answers and citation snapshots; delete conversations separately.
+- No malware scanning, quotas, rate limiting, parser sandbox or retention policy.
+- On 16 GB machines, set `LLAMA_ARG_CACHE_RAM=0` for Ollama or long sessions can run out of memory (DECISIONS #22).
 
 ## Roadmap
 
-See [ROADMAP](docs/ROADMAP.md): authentication/RBAC, durable ingestion, OCR, labeled retrieval/generation evaluation, hybrid retrieval/reranking if evidence supports them, observability, then Azure. Agents belong in a later justified workflow, not this MVP.
+See [ROADMAP](docs/ROADMAP.md). Next candidates, each to be measured on the evaluation set: OCR and a CPU reranker (model downloads pending approval), an NLI claim verifier, table-row chunks with more table questions, then authentication and deployment. Agents belong in a later justified workflow, not this MVP.

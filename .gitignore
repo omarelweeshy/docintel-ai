@@ -17,3 +17,4 @@ playwright-report/
 
 evals/.cache/
 evals/runs/*/turns.jsonl
+.env.local

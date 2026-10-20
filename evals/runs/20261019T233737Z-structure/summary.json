@@ -3176,5 +3176,6 @@
   "host_memory_end": {
     "total_gib": 15.83,
     "free_gib": 0.96
-  }
+  },
+  "rescored": true
 }
