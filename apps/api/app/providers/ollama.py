@@ -107,10 +107,13 @@ class OllamaProvider:
         except (KeyError, ValueError) as exc:
             raise ProviderError("Local model returned an invalid grounded answer.") from exc
 
-    async def generate_stream(self, system: str, user: str) -> AsyncIterator[str]:
-        """Stream the raw JSON text of a ModelAnswer as Ollama produces it. The caller parses
-        and validates the complete text; partial text is only ever shown as provisional."""
-        body = self._chat_body(system, user, ModelAnswer, stream=True)
+    async def generate_stream(
+        self, system: str, user: str, schema: type[BaseModel] = ModelAnswer
+    ) -> AsyncIterator[str]:
+        """Stream the raw JSON text of a schema-constrained answer as Ollama produces it. The
+        caller parses and validates the complete text; partial text is shown only as provisional.
+        """
+        body = self._chat_body(system, user, schema, stream=True)
         try:
             async with self.client.stream("POST", "/api/chat", json=body) as response:
                 response.raise_for_status()

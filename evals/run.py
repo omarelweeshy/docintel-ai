@@ -68,10 +68,22 @@ class TurnResult:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+# Settings that reproduce the pipeline on origin/main. Each system pins the settings its row was
+# measured with, so later changes to application defaults cannot silently change an old row.
+ORIGINAL: dict[str, Any] = {
+    "retrieval_mode": "vector",
+    "query_planning": False,
+    "query_decomposition": False,
+    "chunking": "words",
+    "answer_format": "answer",
+}
+
+
 class System:
     """Interface every ablation row implements."""
 
     name = "abstract"
+    overrides: dict[str, Any] = ORIGINAL
 
     def __init__(self, settings: Any, session_factory: Any, provider: Any):
         self.settings = settings
@@ -105,6 +117,10 @@ class Baseline(System):
 
     def index_key(self) -> str:
         s = self.settings
+        if s.chunking == "structure":
+            return f"structure_v1-{s.chunk_target_words}|{s.embedding_model}"
+        if s.chunking == "words_tables":
+            return f"words_tables_v1-{s.chunk_words}-{s.chunk_overlap}|{s.embedding_model}"
         return f"words{s.chunk_words}-{s.chunk_overlap}-{s.max_chunk_chars}|{s.embedding_model}"
 
     async def ingest(self, session: Any, workspace_id: UUID, name: str, data: bytes) -> Any:
@@ -142,7 +158,9 @@ class Baseline(System):
         # as the API does with retrieval_depth, and keeps the full list for retrieval metrics.
         wide = self.settings.model_copy(update={"top_k": RETRIEVE_K})
         planner = (
-            QueryPlanner(self.provider, self.settings.history_messages)
+            QueryPlanner(
+                self.provider, self.settings.history_messages, self.settings.query_decomposition
+            )
             if self.settings.query_planning
             else None
         )
@@ -181,11 +199,21 @@ class Baseline(System):
             else []
         )
         plan = pipeline.last_plan
-        extra = (
+        extra: dict[str, Any] = (
             {"standalone_question": plan.standalone, "sub_questions": plan.sub_questions}
             if plan and plan.planned
             else {}
         )
+        if response and response.sentences:
+            extra["sentences"] = [
+                {
+                    "text": s.text,
+                    "chunk_ids": [str(response.citations[i].chunk_id) for i in s.citations],
+                    "supported": s.supported,
+                    "missing_numbers": s.missing_numbers,
+                }
+                for s in response.sentences
+            ]
         return TurnResult(
             retrieved=retrieved,
             answer=response.answer if response else None,
@@ -200,6 +228,8 @@ class Baseline(System):
 class Hybrid(Baseline):
     """Row 1: same chunks, retrieval = vector + keyword search fused by RRF, as configured by
     settings (rrf_k, candidate_pool, identifier_search; override with --set for tuning)."""
+
+    overrides = {**ORIGINAL, "retrieval_mode": "hybrid"}
 
     name = "hybrid"
     keyword_configs: tuple[str, ...] | None = None
@@ -233,14 +263,52 @@ class KeywordOnly(Hybrid):
 
 
 class HybridPlanned(Hybrid):
-    """Row: hybrid retrieval plus query planning (follow-up rewriting, multi-part splitting)."""
+    """Row 2 as measured: hybrid retrieval plus query planning with multi-part splitting."""
 
     name = "hybrid-planned"
+    overrides = {**Hybrid.overrides, "query_planning": True, "query_decomposition": True}
 
-    def __init__(self, settings: Any, session_factory: Any, provider: Any):
-        super().__init__(
-            settings.model_copy(update={"query_planning": True}), session_factory, provider
-        )
+
+class HybridRewrite(Hybrid):
+    """Hybrid retrieval plus follow-up rewriting only (the shipped planner configuration)."""
+
+    name = "hybrid-rewrite"
+    overrides = {**Hybrid.overrides, "query_planning": True}
+
+
+class Structure(HybridRewrite):
+    """Row 3: structure-aware chunks (headings, table rows, page-bounded) on top of row 2."""
+
+    name = "structure"
+    overrides = {**HybridRewrite.overrides, "chunking": "structure"}
+
+
+class WordsTables(HybridRewrite):
+    """Row 3b: original word windows plus table-row chunks, on top of row 2."""
+
+    name = "words-tables"
+    overrides = {**HybridRewrite.overrides, "chunking": "words_tables"}
+
+
+class SentencesWords(HybridRewrite):
+    """Sentence citations on the row 2 stack (original word chunks)."""
+
+    name = "sentences-words"
+    overrides = {**HybridRewrite.overrides, "answer_format": "sentences"}
+
+
+class Sentences(Structure):
+    """Row 4: sentence-level citations with span alignment and lexical support checks."""
+
+    name = "sentences"
+    overrides = {**Structure.overrides, "answer_format": "sentences"}
+
+
+class Current(Hybrid):
+    """Whatever the application's current defaults are, with no pinned settings."""
+
+    name = "current"
+    overrides: dict[str, Any] = {}
 
 
 SYSTEMS: dict[str, Callable[..., System]] = {
@@ -250,11 +318,19 @@ SYSTEMS: dict[str, Callable[..., System]] = {
     "hybrid-identifiers": HybridIdentifiers,
     "keyword": KeywordOnly,
     "hybrid-planned": HybridPlanned,
+    "hybrid-rewrite": HybridRewrite,
+    "structure": Structure,
+    "sentences": Sentences,
+    "words-tables": WordsTables,
+    "sentences-words": SentencesWords,
+    "current": Current,
 }
 
 
 def parse_override(item: str) -> tuple[str, Any]:
     key, _, value = item.partition("=")
+    if value in ("true", "false"):
+        return key.strip(), value == "true"
     return key.strip(), json.loads(value) if value[:1].isdigit() or value[:1] in "[{" else value
 
 
@@ -387,7 +463,10 @@ async def main_async(args: argparse.Namespace) -> Path:
 
     from app.providers.factory import create_provider
 
-    settings = make_settings(**dict(parse_override(o) for o in args.set))
+    # System pins first, then explicit --set overrides (used for tuning).
+    settings = make_settings(
+        **{**SYSTEMS[args.system].overrides, **dict(parse_override(o) for o in args.set)}  # type: ignore[attr-defined]
+    )
     if settings.ai_provider != "ollama":
         raise SystemExit("The measured eval runs on the local Ollama provider only.")
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)

@@ -76,6 +76,26 @@ def score_turn(turn: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     scores["forbidden_hits"] = hits
     if turn["forbidden"]:
         scores["injection_safe"] = not hits
+    sentences = (result.get("extra") or {}).get("sentences") or []
+    if sentences and not abstained:
+        # Share of answer sentences that pass the system's own lexical support check.
+        scores["sentence_supported"] = sum(1 for x in sentences if x["supported"]) / len(sentences)
+        if turn["evidence"]:
+            by_id = {c["chunk_id"]: c for c in result.get("retrieved") or []}
+
+            def gold(chunk_id: str) -> bool:
+                chunk = by_id.get(chunk_id)
+                return chunk is not None and any(
+                    evidence_hit(ev, chunk["doc"], chunk["page"], chunk["text"])
+                    for ev in turn["evidence"]
+                )
+
+            cited_sentences = [x for x in sentences if x["chunk_ids"]]
+            if cited_sentences:
+                # Strict: a sentence counts if any passage it cites contains gold evidence.
+                scores["sentence_cite_precision"] = sum(
+                    1 for x in cited_sentences if any(gold(c) for c in x["chunk_ids"])
+                ) / len(cited_sentences)
     cited = result.get("citations") or []
     if cited and turn["evidence"]:
         # Strict, chunk-level: a cited chunk counts if it matches any gold evidence item.
@@ -126,6 +146,8 @@ METRIC_FIELDS = (
         "decline_correct",
         "injection_safe",
         "citation_precision",
+        "sentence_supported",
+        "sentence_cite_precision",
         "error",
     ]
 )

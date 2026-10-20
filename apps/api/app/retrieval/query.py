@@ -91,10 +91,12 @@ class QueryPlanner:
         )
         try:
             with traced_stage("plan"):
-                plan = await self.provider.generate_structured(
-                    PLANNER_SYSTEM, payload, QueryPlan, purpose="plan"
+                plan = QueryPlan.model_validate(
+                    await self.provider.generate_structured(
+                        PLANNER_SYSTEM, payload, QueryPlan, purpose="plan"
+                    )
                 )
-        except ProviderError:
+        except (ProviderError, ValueError, TypeError):
             # Planning is an optimisation. If it fails, answer with the question as asked.
             return PlannedQueries(question, question)
         subs = [s.strip() for s in plan.sub_questions if s.strip()] if self.decompose else []

@@ -17,6 +17,17 @@ export type DocumentRecord = {
   processed_at: string | null;
   error_message: string | null;
 };
+export type IngestJob = {
+  id: string;
+  document_id: string;
+  kind: "ingest" | "reindex";
+  status: "queued" | "running" | "succeeded" | "failed";
+  stage: string;
+  progress: number;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+};
 export type Citation = {
   document_id: string;
   filename: string;
@@ -24,11 +35,20 @@ export type Citation = {
   chunk_id: string;
   snippet: string;
 };
+export type SentenceSpan = { citation: number; start: number; end: number };
+export type AnswerSentence = {
+  text: string;
+  citations: number[];
+  spans: SentenceSpan[];
+  supported: boolean;
+  missing_numbers: string[];
+};
 export type Message = {
   id: string;
   role: string;
   content: string;
   citations: Citation[];
+  sentences?: AnswerSentence[];
   created_at: string;
 };
 export type Conversation = {
@@ -57,6 +77,7 @@ export type ChatAnswer = {
   answer: string;
   citations: Citation[];
   insufficient_context: boolean;
+  sentences?: AnswerSentence[];
 };
 export type StreamHandlers = {
   onStage?: (stage: string) => void;
@@ -167,12 +188,52 @@ export function validateFile(
     return `File exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`;
   return null;
 }
-export function uploadDocument(
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Poll a queued document's ingestion job until it finishes, then return the document. */
+export async function waitForIngestion(
+  workspaceId: string,
+  documentId: string,
+  onJob?: (job: IngestJob) => void,
+  intervalMs = 1500,
+): Promise<DocumentRecord> {
+  for (;;) {
+    const job = await api<IngestJob>(
+      `/documents/${documentId}/job?workspace_id=${workspaceId}`,
+    );
+    onJob?.(job);
+    if (job.status === "succeeded" || job.status === "failed")
+      return api<DocumentRecord>(
+        `/documents/${documentId}?workspace_id=${workspaceId}`,
+      );
+    await sleep(intervalMs);
+  }
+}
+
+/**
+ * Upload a file. With inline ingestion the server answers 201 with the processed document. With
+ * queued ingestion it answers 202 with the document and its job, and this waits for the job.
+ */
+export async function uploadDocument(
   workspaceId: string,
   file: File,
   progress: (value: number) => void,
+  onJob?: (job: IngestJob) => void,
 ): Promise<DocumentRecord> {
   if (DEMO) return demoUpload(workspaceId, file, progress);
+  const result = await sendUpload(workspaceId, file, progress);
+  if ("job" in result) {
+    onJob?.(result.job);
+    return waitForIngestion(workspaceId, result.document.id, onJob);
+  }
+  return result;
+}
+
+function sendUpload(
+  workspaceId: string,
+  file: File,
+  progress: (value: number) => void,
+): Promise<DocumentRecord | { document: DocumentRecord; job: IngestJob }> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", API + "/documents");
@@ -192,8 +253,7 @@ export function uploadDocument(
     request.onload = () => {
       try {
         const result = JSON.parse(request.responseText);
-        if (request.status >= 200 && request.status < 300)
-          resolve(result as DocumentRecord);
+        if (request.status >= 200 && request.status < 300) resolve(result);
         else reject(new Error(errorMessage(result, "Upload failed.")));
       } catch {
         reject(new Error("Server returned an unreadable response."));

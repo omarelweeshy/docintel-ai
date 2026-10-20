@@ -25,6 +25,17 @@ class Settings(BaseSettings):
     chunk_words: int = Field(default=350, ge=20, le=1000)
     chunk_overlap: int = Field(default=50, ge=0)
     max_chunk_chars: int = Field(default=6000, ge=100, le=8000)
+    # "words": fixed word windows per page (original). "structure": headings, table rows and
+    # paragraphs with heading-path prefixes (app/ingest). Changing it requires a reindex.
+    # "words_tables": word windows plus one extra chunk group per detected table.
+    chunking: Literal["words", "structure", "words_tables"] = "words"
+    chunk_target_words: int = Field(default=260, ge=20, le=1000)
+    # "inline": parse and embed during the upload request (original). "queue": the upload returns
+    # 202 and a worker process (python -m app.worker) ingests from the durable job table.
+    ingestion_mode: Literal["inline", "queue"] = "inline"
+    job_max_attempts: int = Field(default=3, ge=1, le=10)
+    job_lease_seconds: float = Field(default=120, ge=10, le=3600)
+    worker_poll_seconds: float = Field(default=2, gt=0, le=60)
     max_chunks: int = Field(default=2000, ge=1)
     top_k: int = Field(default=6, ge=1, le=20)
     # "hybrid" (default) fuses vector and keyword search by RRF; "vector" is the original
@@ -38,8 +49,15 @@ class Settings(BaseSettings):
     # Retrievers return this many ranked chunks; the generator sees the first top_k. A deeper list
     # lets multi-query fusion and evaluation work on the same ranking the API uses.
     retrieval_depth: int = Field(default=20, ge=1, le=100)
-    # Rewrite follow-up questions using recent history and split multi-part questions.
-    query_planning: bool = False
+    # Rewrite follow-up questions into standalone ones using recent history (one extra model call,
+    # only when there is history). On the test split it fixed 3 of 13 follow-up turns.
+    query_planning: bool = True
+    # Also split multi-part first-turn questions into sub-queries. Off: in the measured run it
+    # triggered once and turned a correct answer into an abstention.
+    query_decomposition: bool = False
+    # "answer": one answer with chunk-level citations (original). "sentences": each sentence cites
+    # passages, is aligned to a span and is checked for lexical support.
+    answer_format: Literal["answer", "sentences"] = "answer"
     history_messages: int = Field(default=6, ge=0, le=20)
     max_question_chars: int = Field(default=2000, ge=1, le=10000)
     max_context_chars: int = Field(default=24000, ge=1000, le=100000)

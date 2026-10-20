@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -51,6 +52,9 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Parser, chunker and embedding model the stored chunks were built with ("words_v1:model").
+    # A document whose index_version differs from the current settings needs a reindex job.
+    index_version: Mapped[str | None] = mapped_column(String(200))
 
 
 class DocumentChunk(Base):
@@ -102,4 +106,48 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
     citations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    sentences: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class IngestJob(Base):
+    """Durable ingestion work item. A worker claims a job with a time-limited lease; a job whose
+    lease expired (worker crash) becomes claimable again, and failures retry with backoff."""
+
+    __tablename__ = "ingest_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed')", name="ingest_job_status"
+        ),
+        CheckConstraint("kind IN ('ingest','reindex')", name="ingest_job_kind"),
+        Index("ix_ingest_jobs_claim", "status", "run_after"),
+        # At most one unfinished job per document.
+        Index(
+            "uq_ingest_jobs_active_document",
+            "document_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued','running')"),
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), default="ingest")
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    index_version: Mapped[str] = mapped_column(String(200))
+    attempts: Mapped[int] = mapped_column(default=0)
+    max_attempts: Mapped[int] = mapped_column(default=3)
+    stage: Mapped[str] = mapped_column(String(40), default="queued")
+    progress: Mapped[int] = mapped_column(default=0)
+    run_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    lease_owner: Mapped[str | None] = mapped_column(String(100))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

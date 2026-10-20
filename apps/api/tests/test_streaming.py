@@ -36,7 +36,7 @@ class StreamingProvider:
     async def generate(self, system: str, user: str) -> ModelAnswer:
         raise AssertionError("streaming providers are streamed")
 
-    async def generate_stream(self, system: str, user: str) -> AsyncIterator[str]:
+    async def generate_stream(self, system: str, user: str, schema=None) -> AsyncIterator[str]:  # type: ignore[no-untyped-def]
         context = json.loads(user)["untrusted_context"]
         for piece in self.pieces:
             yield piece.replace("SOURCE", context[0]["id"])

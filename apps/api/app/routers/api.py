@@ -8,13 +8,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.core.errors import AppError
-from app.models.entities import Conversation, Document, Message, Workspace
+from app.ingest.jobs import JobQueue
+from app.models.entities import Conversation, Document, IngestJob, Message, Workspace
 from app.observability.trace import Trace, bind_trace
 from app.providers.interfaces import AIProvider
 from app.rag.chunking import WordChunker
@@ -30,13 +31,16 @@ from app.schemas.api import (
     ConversationDetail,
     ConversationOut,
     DocumentOut,
+    JobOut,
     MessageOut,
+    ReindexResult,
     Stats,
+    UploadAccepted,
     WorkspaceCreate,
     WorkspaceOut,
 )
 from app.services.embeddings import EmbeddingService
-from app.services.ingestion import IngestionService
+from app.services.ingestion import IngestionService, index_version
 from app.services.storage import FileStorage
 
 router = APIRouter()
@@ -130,30 +134,85 @@ async def list_documents(
     return await CatalogRepository(session).documents(workspace_id, offset, limit)
 
 
+def ingestion_service(
+    session: AsyncSession, settings: Settings, provider: AIProvider
+) -> IngestionService:
+    return IngestionService(
+        session,
+        FileStorage(settings.storage_dir, settings.max_upload_bytes),
+        WordChunker(settings.chunk_words, settings.chunk_overlap, settings.max_chunk_chars),
+        EmbeddingService(provider, settings.embedding_dimensions),
+        settings,
+    )
+
+
 @router.post(
     "/documents",
-    response_model=DocumentOut,
+    response_model=DocumentOut | UploadAccepted,
     status_code=201,
     tags=["documents"],
-    description="Creates and processes one document inline. Inspect status/error_message.",
+    responses={202: {"model": UploadAccepted, "description": "Queued for the ingestion worker."}},
+    description=(
+        "INGESTION_MODE=inline: parses and embeds within the request and returns 201 with the "
+        "document (inspect status/error_message). INGESTION_MODE=queue: stores the file, queues "
+        "a job and returns 202 with the document and job; poll GET /documents/{id}/job."
+    ),
 )
 async def upload_document(
+    response: Response,
     session: Session,
     settings: Config,
     provider: Provider,
     workspace_id: Annotated[UUID, Form()],
     file: Annotated[UploadFile, File()],
-) -> Document:
+) -> Document | UploadAccepted:
     try:
-        return await IngestionService(
-            session,
-            FileStorage(settings.storage_dir, settings.max_upload_bytes),
-            WordChunker(settings.chunk_words, settings.chunk_overlap, settings.max_chunk_chars),
-            EmbeddingService(provider, settings.embedding_dimensions),
-            settings,
-        ).upload(workspace_id, file)
+        service = ingestion_service(session, settings, provider)
+        if settings.ingestion_mode == "queue":
+            document, job = await service.enqueue(workspace_id, file)
+            response.status_code = 202
+            return UploadAccepted(
+                document=DocumentOut.model_validate(document), job=JobOut.model_validate(job)
+            )
+        return await service.upload(workspace_id, file)
     finally:
         await file.close()
+
+
+@router.get("/documents/{document_id}/job", response_model=JobOut, tags=["documents"])
+async def document_job(document_id: UUID, workspace_id: UUID, session: Session) -> IngestJob:
+    """Latest ingestion job of a document: stage, progress, attempts and last error."""
+    await CatalogRepository(session).document(workspace_id, document_id)
+    job = await JobQueue(session).latest(document_id)
+    if job is None:
+        raise AppError("job_not_found", "This document has no ingestion job.", 404)
+    return job
+
+
+@router.post("/workspaces/{workspace_id}/reindex", response_model=ReindexResult, tags=["documents"])
+async def reindex_workspace(
+    workspace_id: UUID, session: Session, settings: Config
+) -> ReindexResult:
+    """Queue reindex jobs for ready documents built with a different parser, chunker or
+    embedding model than the current settings. Needs the ingestion worker to be running."""
+    await CatalogRepository(session).workspace(workspace_id)
+    current = index_version(settings)
+    stale = list(
+        await session.scalars(
+            select(Document).where(
+                Document.workspace_id == workspace_id,
+                Document.status == "ready",
+                or_(Document.index_version.is_(None), Document.index_version != current),
+            )
+        )
+    )
+    queue = JobQueue(session)
+    for document in stale:
+        await queue.enqueue(
+            document.id, current, kind="reindex", max_attempts=settings.job_max_attempts
+        )
+    await session.commit()
+    return ReindexResult(index_version=current, queued=len(stale))
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut, tags=["documents"])
@@ -287,7 +346,11 @@ async def prepare_chat(
         ),
         provider,
         settings,
-        QueryPlanner(provider, settings.history_messages) if settings.query_planning else None,
+        (
+            QueryPlanner(provider, settings.history_messages, settings.query_decomposition)
+            if settings.query_planning
+            else None
+        ),
     )
     return question, pipeline, filters, history
 
@@ -311,6 +374,7 @@ async def save_exchange(
             role="assistant",
             content=result.answer,
             citations=[c.model_dump(mode="json") for c in result.citations],
+            sentences=[x.model_dump(mode="json") for x in result.sentences],
             # Keep the pair ordered even if the host clock has coarse resolution.
             created_at=max(datetime.now(UTC), user_created_at + timedelta(microseconds=1)),
         )

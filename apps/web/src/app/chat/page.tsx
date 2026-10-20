@@ -5,6 +5,7 @@ import { ArrowUp, MessagesSquare, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useWorkspace } from "@/components/providers";
 import { Empty, ErrorState, PageHeader } from "@/components/ui";
 import { Citations } from "@/components/citations";
+import { SentenceAnswer } from "@/components/sentences";
 import {
   api,
   Conversation,
@@ -257,7 +258,14 @@ function Chat({ workspaceId }: { workspaceId: string }) {
                     <div className="message-author">
                       {message.role === "user" ? "YOU" : "DOCINTEL AI"}
                     </div>
-                    <p>{message.content}</p>
+                    {message.sentences?.length ? (
+                      <SentenceAnswer
+                        sentences={message.sentences}
+                        citations={message.citations}
+                      />
+                    ) : (
+                      <p>{message.content}</p>
+                    )}
                     <Citations
                       citations={message.citations}
                       workspaceId={workspaceId}

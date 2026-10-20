@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 from app.services.parsing import Page, normalize_text
 
@@ -9,6 +9,7 @@ class Chunk:
     index: int
     page_number: int | None
     text: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class Chunker(Protocol):

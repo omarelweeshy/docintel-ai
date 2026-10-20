@@ -25,6 +25,7 @@ HEADLINE = [
     ("false_abstain", "False abstain"),
     ("citation_precision", "Cite prec."),
     ("injection_safe", "Injection safe"),
+    ("sentence_supported", "Sentences supported"),
 ]
 TYPES = [
     "all",

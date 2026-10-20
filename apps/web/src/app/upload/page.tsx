@@ -8,6 +8,7 @@ import { Empty, PageHeader } from "@/components/ui";
 import {
   api,
   formatBytes,
+  IngestJob,
   PublicConfig,
   uploadDocument,
   validateFile,
@@ -27,6 +28,7 @@ export default function UploadPage() {
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState("");
+  const [job, setJob] = useState<IngestJob | null>(null);
   const maxBytes = config.data?.max_upload_bytes ?? 20 * 1024 * 1024;
   function choose(candidate?: File) {
     if (busy || !candidate) return;
@@ -48,7 +50,13 @@ export default function UploadPage() {
     setError("");
     setSuccess("");
     try {
-      const result = await uploadDocument(targetWorkspace, file, setProgress);
+      setJob(null);
+      const result = await uploadDocument(
+        targetWorkspace,
+        file,
+        setProgress,
+        setJob,
+      );
       if (result.status === "failed")
         setError(
           result.error_message ||
@@ -63,6 +71,7 @@ export default function UploadPage() {
       setError(e instanceof Error ? e.message : "Upload failed.");
     } finally {
       setBusy(false);
+      setJob(null);
       void client.invalidateQueries({
         queryKey: ["documents", targetWorkspace],
       });
@@ -179,13 +188,22 @@ export default function UploadPage() {
                   <span>
                     {progress < 100
                       ? "Uploading file"
-                      : "Parsing, chunking, and indexing"}
+                      : job
+                        ? `Indexing: ${job.stage}${job.attempts > 1 ? ` (attempt ${job.attempts} of ${job.max_attempts})` : ""}`
+                        : "Parsing, chunking, and indexing"}
                   </span>
                   <span>
-                    {progress < 100 ? `${progress}%` : "Processing..."}
+                    {progress < 100
+                      ? `${progress}%`
+                      : job
+                        ? `${job.progress}%`
+                        : "Processing..."}
                   </span>
                 </div>
-                <progress max={100} value={progress} />
+                <progress
+                  max={100}
+                  value={progress < 100 || !job ? progress : job.progress}
+                />
                 <p>You can inspect its status on the Documents page.</p>
               </div>
             )}

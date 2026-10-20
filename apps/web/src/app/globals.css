@@ -1353,3 +1353,65 @@ progress {
   opacity: 0.6;
   font-style: italic;
 }
+
+/* Sentence-level citations */
+.sentence-answer p {
+  line-height: 1.7;
+}
+.sentence-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  margin: 0 0 0 0.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: super;
+  background: #e3f1ef;
+  color: var(--teal);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.sentence-marker.active,
+.sentence-marker:focus-visible {
+  border-color: currentColor;
+}
+.sentence-unsupported {
+  text-decoration: underline dotted #b45309;
+  text-underline-offset: 3px;
+}
+.sentence-flag {
+  display: inline-flex;
+  margin-left: 0.2rem;
+  color: #b45309;
+  vertical-align: middle;
+}
+.sentence-warning {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #b45309;
+}
+.sentence-source {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--teal);
+  font-size: 0.85rem;
+  display: grid;
+  gap: 0.4rem;
+}
+.sentence-source mark {
+  background: #fde68a;
+  color: inherit;
+  padding: 0 0.1rem;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
