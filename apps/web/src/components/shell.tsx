@@ -13,6 +13,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { useWorkspace } from "./providers";
+import { ThemeToggle } from "./theme-toggle";
 import { api, DEMO, Workspace } from "@/lib/api";
 import { resetDemo } from "@/demo/server";
 
@@ -125,7 +126,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <span className="edition">PHASE 01</span>
+          <span className="edition mono">GROUNDED RAG</span>
           <h3>Evidence comes first.</h3>
           <p>Answers connected to the passages that support them.</p>
           <Link href="/chat">
@@ -135,19 +136,23 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="local-notice">
           <span className="status-dot" />{" "}
           {DEMO ? "Public demo" : "Local development"}{" "}
-          <span className="text-slate-500">v0.1</span>
+          <span className="version mono">v0.2</span>
         </div>
       </aside>
       <div className="main-shell">
         <header className="topbar">
           <span>
-            Workspace <span className="text-slate-300 mx-3">/</span>
+            <span className="mono crumb">workspace</span>
+            <span className="crumb-sep">/</span>
             <strong>
               {workspaces.find((w) => w.id === workspaceId)?.name ||
                 "Getting started"}
             </strong>
           </span>
-          <span className="topbar-note">Document intelligence platform</span>
+          <span className="topbar-actions">
+            <span className="topbar-note">Document intelligence console</span>
+            <ThemeToggle />
+          </span>
         </header>
         <main>
           {DEMO && (
