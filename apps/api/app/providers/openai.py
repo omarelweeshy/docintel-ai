@@ -1,6 +1,7 @@
 from typing import Literal
 
 from openai import AsyncOpenAI
+from pydantic import BaseModel
 
 from app.core.config import Settings
 from app.core.errors import ProviderError
@@ -50,6 +51,11 @@ class OpenAIProvider:
         return vectors
 
     async def generate(self, system: str, user: str) -> ModelAnswer:
+        return await self.generate_structured(system, user, ModelAnswer)
+
+    async def generate_structured[M: BaseModel](
+        self, system: str, user: str, schema: type[M], purpose: str = "generate"
+    ) -> M:
         client = self._client()
         try:
             response = await client.responses.parse(
@@ -58,7 +64,7 @@ class OpenAIProvider:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                text_format=ModelAnswer,
+                text_format=schema,
                 max_output_tokens=2500,
                 store=False,
             )

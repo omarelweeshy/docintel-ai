@@ -14,3 +14,7 @@ coverage/
 storage/
 test-results/
 playwright-report/
+
+evals/.cache/
+evals/runs/*/turns.jsonl
+.env.local

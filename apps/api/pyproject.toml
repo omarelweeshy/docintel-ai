@@ -12,7 +12,7 @@ dependencies = [
   "pgvector>=0.3.6,<1", "python-multipart>=0.0.20,<1", "pymupdf>=1.25,<2",
   "python-docx>=1.1.2,<2", "openai>=1.68,<3", "httpx>=0.28,<1"
 ]
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1", "mypy>=1.15,<2"]
 [tool.setuptools.packages.find]
 include = ["app*"]
@@ -21,6 +21,8 @@ target-version = "py312"
 line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+[tool.ruff.lint.isort]
+known-first-party = ["app", "evals"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -30,5 +32,7 @@ module = ["pgvector.*", "pymupdf.*"]
 ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "../../evals/tests"]
+# The eval harness lives at the repository root and imports the app package.
+pythonpath = ["../.."]
 markers = ["integration: requires TEST_DATABASE_URL pointing to disposable pgvector database"]

@@ -166,3 +166,61 @@ larger scored dataset remains necessary before claiming measured RAG quality.
 **Alternatives:** Lower the global cutoff; hard-code summary-intent phrases; train a relevance classifier; add a reranker with calibrated evaluation.
 
 **Tradeoffs:** Questions against a non-empty workspace now invoke generation even when vector similarity is low, increasing latency and compute. Citation allowlisting, the grounded prompt, structured output validation and explicit model abstention remain mandatory. A labeled evaluation set should guide a later reranker or calibrated relevance gate.
+
+## 17. Hybrid retrieval with PostgreSQL full-text search and reciprocal rank fusion
+
+**Decision:** Retrieve with pgvector cosine search and PostgreSQL 16 full-text search (`english` configuration, terms OR-ed) in parallel, then merge the two ranked lists with reciprocal rank fusion (k=60, 30 candidates per list). Metadata filters (document, file type, page range) apply to both lists before ranking. Default `RETRIEVAL_MODE=hybrid`; `vector` keeps the original behaviour.
+
+**Why:** On the 108 answerable test turns, hybrid raised recall@5 from 0.67 to 0.75 (paired difference +0.083, 95% interval +0.028 to +0.148) and answer correctness from 0.67 to 0.73 (+0.065, +0.019 to +0.120). Single-fact questions with exact wording gained most. Retrieval latency rose by about 37 ms at the median. RRF uses ranks only, so incomparable cosine and text-rank scores need no calibration.
+
+**Alternatives:** True BM25 with `pg_textsearch` (needs PostgreSQL 17); weighted score blending; a separate exact-identifier list on the `simple` configuration.
+
+**Tradeoffs:** PostgreSQL's built-in ranking has no inverse document frequency, so common words weigh as much as rare ones. The identifier list (codes such as `800-61r3`) is implemented but off by default because it did not help on the dev split. RRF k and pool size made differences within noise on 43 dev turns; the defaults were kept. A BM25 row remains an option if keyword recall becomes the bottleneck.
+
+## 18. Rewrite follow-up questions; do not split questions by default
+
+**Decision:** When a conversation has history, one schema-constrained call to the local generator rewrites the latest question into a standalone question before retrieval (`QUERY_PLANNING=true`, last `HISTORY_MESSAGES=6` messages). The model answers the rewritten question and sees the original wording. Splitting multi-part questions into fused sub-queries is implemented but off (`QUERY_DECOMPOSITION=false`).
+
+**Why:** Follow-ups such as "How are they destroyed?" are unanswerable without their subject. Rewriting fixed 5 and broke 2 of 13 non-scanned follow-up turns (8 to 11 correct), at a cost of about 1 s and 370 prompt tokens per follow-up; first turns pay nothing. Splitting triggered once in 173 turns and turned a correct answer into an abstention. This replaces decision 10's "history is stored but unused": history now steers retrieval only; answers still come from retrieved passages.
+
+**Alternatives:** Pass the raw history to the generator; embed the concatenated history; no history.
+
+**Tradeoffs:** A rewrite can over-specify a question (two Halvorsen follow-ups regressed when "incident reports" pulled in NIST passages). History is untrusted input to the planner and is framed as data.
+
+## 19. Structure-aware parsing kept as an option, not the default
+
+**Decision:** `app/ingest/structure.py` builds headings, paragraphs and table rows from PyMuPDF's own layout data (tables, text direction, font size and weight, block order) with no extra models. Two strategies use it: `CHUNKING=structure` (heading- and page-bounded chunks of about 260 words) and `CHUNKING=words_tables` (default word windows plus row-based table chunks). The default remains `words`.
+
+**Why:** Structure chunking improved table answers (10 to 12 of 15) but lowered test recall@20 (-0.052, interval -0.099 to -0.015) and correctness on prose questions. Words plus table chunks fixed 3 test table questions and lost none, but its table interval touches zero and it lost two dev table questions. Neither met the keep rule (docs/EVAL_RESULTS.md, rows 3 and 3b).
+
+**Alternatives:** Docling layout and table models (needs an approved model download); parent-child retrieval that searches small chunks and returns their section.
+
+**Tradeoffs:** The default still garbles some PDF table cells. Changing `CHUNKING` requires a reindex (`POST /workspaces/{id}/reindex`).
+
+## 20. Sentence-level citations with a lexical support check
+
+**Decision:** With `ANSWER_FORMAT=sentences` the generator returns cited sentences over passages labelled S1..Sn. The API aligns each sentence to a character span in its cited passage and flags it when a number, code or date is missing from the cited text or fewer than half its content words appear there. Flagged sentences are shown with a warning, not removed.
+
+**Why:** Chunk-level citations proved only that a cited chunk was retrieved, not that it supports a given claim. The lexical check needs no extra model and targets the most harmful error for policy documents: a wrong number or deadline.
+
+**Alternatives:** An NLI claim verifier (LettuceDetect or HHEM) on CPU, which needs an approved model download; LLM self-check, which adds a second generation call.
+
+**Tradeoffs:** The check cannot see contradictions phrased with the same words, and table answers with reformatted numbers can be flagged although correct. Its error rate against human judgement has not been measured yet.
+
+## 21. Durable ingestion on PostgreSQL
+
+**Decision:** An `ingest_jobs` table and a worker process (`python -m app.worker`) replace request-bound ingestion when `INGESTION_MODE=queue` (the Compose default). Jobs are claimed with `FOR UPDATE SKIP LOCKED`, hold renewable leases, retry with exponential backoff and record stage, progress and errors. Indexing replaces a document's chunks in one transaction, so retries and reindexing are idempotent. `index_version` on each document records how its chunks were built.
+
+**Why:** Inline ingestion tied long embedding work to an HTTP request; a crash left documents stuck in `processing` with no retry. PostgreSQL is already required, so a table-based queue adds no new infrastructure.
+
+**Alternatives:** Redis/RQ, Celery, a cloud queue.
+
+**Tradeoffs:** Polling adds up to `WORKER_POLL_SECONDS` latency. One worker processes one job at a time; scale by running more workers. Inline mode remains for native development and tests.
+
+## 22. Second Ollama for measurement, with the RAM prompt cache off
+
+**Decision:** Measured runs use a separate Ollama on 127.0.0.1:11435 with `OLLAMA_MAX_LOADED_MODELS=2` and `LLAMA_ARG_CACHE_RAM=0`.
+
+**Why:** Ollama 0.34.4's llama-server keeps up to 8 GiB of prompt state in host RAM by default (about 143 MiB per question here). On a 16 GB laptop the first full eval crashed with `std::bad_alloc` after about 12 questions. Disabling it costs little because questions rarely share prompt prefixes.
+
+**Tradeoffs:** Users running the stock Ollama on small machines may hit the same crash; the README notes the setting.

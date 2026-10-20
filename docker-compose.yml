@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docintel}
       POSTGRES_DB: ${POSTGRES_DB:-docintel}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,7 +17,7 @@ services:
       retries: 12
   api:
     build: ./apps/api
-    environment:
+    environment: &api-environment
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-docintel}:${POSTGRES_PASSWORD:-docintel}@db:5432/${POSTGRES_DB:-docintel}
       AI_PROVIDER: ${AI_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
@@ -39,12 +39,18 @@ services:
       MAX_QUESTION_CHARS: ${MAX_QUESTION_CHARS:-2000}
       MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS:-24000}
       PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-180}
+      RETRIEVAL_MODE: ${RETRIEVAL_MODE:-hybrid}
+      QUERY_PLANNING: ${QUERY_PLANNING:-true}
+      CHUNKING: ${CHUNKING:-words}
+      ANSWER_FORMAT: ${ANSWER_FORMAT:-answer}
+      # The worker service below processes uploads; the API only queues them.
+      INGESTION_MODE: ${INGESTION_MODE:-queue}
     volumes:
       - documents:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${API_BIND_HOST:-127.0.0.1}:8000:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -53,13 +59,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+  worker:
+    build: ./apps/api
+    command: ["python", "-m", "app.worker"]
+    environment: *api-environment
+    volumes:
+      - documents:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
   web:
     build:
       context: ./apps/web
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
-      - "${WEB_BIND_HOST:-127.0.0.1}:3000:3000"
+      - "${WEB_BIND_HOST:-127.0.0.1}:${WEB_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy

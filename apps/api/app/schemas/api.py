@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ORMModel(BaseModel):
@@ -39,6 +39,31 @@ class DocumentOut(ORMModel):
     created_at: datetime
     processed_at: datetime | None
     error_message: str | None
+    index_version: str | None = None
+
+
+class JobOut(ORMModel):
+    id: UUID
+    document_id: UUID
+    kind: Literal["ingest", "reindex"]
+    status: Literal["queued", "running", "succeeded", "failed"]
+    stage: str
+    progress: int
+    attempts: int
+    max_attempts: int
+    last_error: str | None
+    created_at: datetime
+    finished_at: datetime | None
+
+
+class UploadAccepted(BaseModel):
+    document: DocumentOut
+    job: JobOut
+
+
+class ReindexResult(BaseModel):
+    index_version: str
+    queued: int
 
 
 class ConversationCreate(BaseModel):
@@ -61,11 +86,31 @@ class Citation(BaseModel):
     snippet: str
 
 
+class SentenceSpan(BaseModel):
+    """Character range [start, end) in the snippet of citations[citation]."""
+
+    citation: int
+    start: int
+    end: int
+
+
+class AnswerSentence(BaseModel):
+    text: str
+    # Indexes into the response's citations list.
+    citations: list[int]
+    spans: list[SentenceSpan]
+    # Lexical support check: every number in the sentence appears in its cited passages and
+    # most content words do. False also when the sentence cites nothing.
+    supported: bool
+    missing_numbers: list[str] = Field(default_factory=list)
+
+
 class MessageOut(ORMModel):
     id: UUID
     role: str
     content: str
     citations: list[Citation]
+    sentences: list[AnswerSentence] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -73,11 +118,25 @@ class ConversationDetail(ConversationOut):
     messages: list[MessageOut]
 
 
+class ChatFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    file_types: list[Literal["pdf", "docx", "txt"]] | None = Field(default=None, max_length=3)
+    page_from: int | None = Field(default=None, ge=1)
+    page_to: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def page_range_order(self) -> "ChatFilters":
+        if self.page_from and self.page_to and self.page_from > self.page_to:
+            raise ValueError("page_from must not be greater than page_to")
+        return self
+
+
 class ChatRequest(BaseModel):
     workspace_id: UUID
     conversation_id: UUID
     question: str = Field(min_length=1, max_length=10000)
     document_ids: list[UUID] | None = Field(default=None, max_length=100)
+    filters: ChatFilters | None = None
 
     @field_validator("question")
     @classmethod
@@ -85,6 +144,20 @@ class ChatRequest(BaseModel):
         if not value.strip():
             raise ValueError("Question cannot be blank")
         return value.strip()
+
+
+class ModelSentence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=2000)
+    source_ids: list[str] = Field(max_length=6)
+
+
+class ModelSentenceAnswer(BaseModel):
+    """Generation schema for sentence-level citations (answer_format="sentences")."""
+
+    model_config = ConfigDict(extra="forbid")
+    sentences: list[ModelSentence] = Field(max_length=12)
+    insufficient_context: bool
 
 
 class ModelAnswer(BaseModel):
@@ -98,6 +171,8 @@ class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation]
     insufficient_context: bool
+    # Present when answer_format="sentences": the answer split into cited, checked sentences.
+    sentences: list[AnswerSentence] = Field(default_factory=list)
 
 
 class Stats(BaseModel):

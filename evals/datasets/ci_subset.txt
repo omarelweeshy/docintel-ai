@@ -1,0 +1,28 @@
+# CI eval subset: replayed with recorded model outputs (evals/fixtures). Small documents only,
+# so the fixture stays small. Proves determinism of pipeline and scoring, not model quality.
+sf-038
+sf-042
+sf-045
+sf-048
+sf-050
+sf-053
+tb-007
+tb-010
+tb-013
+tb-016
+mh-002
+mh-003
+mh-008
+mh-017
+sc-001
+sc-009
+un-001
+un-003
+un-005
+un-018
+in-003
+in-006
+in-008
+in-009
+in-012
+cv-002

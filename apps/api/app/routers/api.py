@@ -1,22 +1,29 @@
+import json
 import logging
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
-from fastapi.responses import FileResponse
-from sqlalchemy import select, text
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.core.errors import AppError
-from app.models.entities import Conversation, Document, Message, Workspace
+from app.ingest.jobs import JobQueue
+from app.models.entities import Conversation, Document, IngestJob, Message, Workspace
+from app.observability.trace import Trace, bind_trace
 from app.providers.interfaces import AIProvider
 from app.rag.chunking import WordChunker
 from app.rag.pipeline import RAGPipeline
-from app.rag.retrieval import VectorRetriever
+from app.rag.retrieval import build_retriever
 from app.repositories.catalog import CatalogRepository
+from app.retrieval.filters import RetrievalFilters
+from app.retrieval.query import HistoryTurn, QueryPlanner
 from app.schemas.api import (
     ChatRequest,
     ChatResponse,
@@ -24,13 +31,16 @@ from app.schemas.api import (
     ConversationDetail,
     ConversationOut,
     DocumentOut,
+    JobOut,
     MessageOut,
+    ReindexResult,
     Stats,
+    UploadAccepted,
     WorkspaceCreate,
     WorkspaceOut,
 )
 from app.services.embeddings import EmbeddingService
-from app.services.ingestion import IngestionService
+from app.services.ingestion import IngestionService, index_version
 from app.services.storage import FileStorage
 
 router = APIRouter()
@@ -65,6 +75,7 @@ async def public_config(settings: Config) -> dict[str, int | bool | str]:
         "ai_provider": settings.ai_provider,
         "ai_configured": settings.ai_provider == "ollama"
         or bool(settings.openai_api_key.get_secret_value()),
+        "uses_history": settings.query_planning and settings.history_messages > 0,
     }
 
 
@@ -123,30 +134,85 @@ async def list_documents(
     return await CatalogRepository(session).documents(workspace_id, offset, limit)
 
 
+def ingestion_service(
+    session: AsyncSession, settings: Settings, provider: AIProvider
+) -> IngestionService:
+    return IngestionService(
+        session,
+        FileStorage(settings.storage_dir, settings.max_upload_bytes),
+        WordChunker(settings.chunk_words, settings.chunk_overlap, settings.max_chunk_chars),
+        EmbeddingService(provider, settings.embedding_dimensions),
+        settings,
+    )
+
+
 @router.post(
     "/documents",
-    response_model=DocumentOut,
+    response_model=DocumentOut | UploadAccepted,
     status_code=201,
     tags=["documents"],
-    description="Creates and processes one document inline. Inspect status/error_message.",
+    responses={202: {"model": UploadAccepted, "description": "Queued for the ingestion worker."}},
+    description=(
+        "INGESTION_MODE=inline: parses and embeds within the request and returns 201 with the "
+        "document (inspect status/error_message). INGESTION_MODE=queue: stores the file, queues "
+        "a job and returns 202 with the document and job; poll GET /documents/{id}/job."
+    ),
 )
 async def upload_document(
+    response: Response,
     session: Session,
     settings: Config,
     provider: Provider,
     workspace_id: Annotated[UUID, Form()],
     file: Annotated[UploadFile, File()],
-) -> Document:
+) -> Document | UploadAccepted:
     try:
-        return await IngestionService(
-            session,
-            FileStorage(settings.storage_dir, settings.max_upload_bytes),
-            WordChunker(settings.chunk_words, settings.chunk_overlap, settings.max_chunk_chars),
-            EmbeddingService(provider, settings.embedding_dimensions),
-            settings,
-        ).upload(workspace_id, file)
+        service = ingestion_service(session, settings, provider)
+        if settings.ingestion_mode == "queue":
+            document, job = await service.enqueue(workspace_id, file)
+            response.status_code = 202
+            return UploadAccepted(
+                document=DocumentOut.model_validate(document), job=JobOut.model_validate(job)
+            )
+        return await service.upload(workspace_id, file)
     finally:
         await file.close()
+
+
+@router.get("/documents/{document_id}/job", response_model=JobOut, tags=["documents"])
+async def document_job(document_id: UUID, workspace_id: UUID, session: Session) -> IngestJob:
+    """Latest ingestion job of a document: stage, progress, attempts and last error."""
+    await CatalogRepository(session).document(workspace_id, document_id)
+    job = await JobQueue(session).latest(document_id)
+    if job is None:
+        raise AppError("job_not_found", "This document has no ingestion job.", 404)
+    return job
+
+
+@router.post("/workspaces/{workspace_id}/reindex", response_model=ReindexResult, tags=["documents"])
+async def reindex_workspace(
+    workspace_id: UUID, session: Session, settings: Config
+) -> ReindexResult:
+    """Queue reindex jobs for ready documents built with a different parser, chunker or
+    embedding model than the current settings. Needs the ingestion worker to be running."""
+    await CatalogRepository(session).workspace(workspace_id)
+    current = index_version(settings)
+    stale = list(
+        await session.scalars(
+            select(Document).where(
+                Document.workspace_id == workspace_id,
+                Document.status == "ready",
+                or_(Document.index_version.is_(None), Document.index_version != current),
+            )
+        )
+    )
+    queue = JobQueue(session)
+    for document in stale:
+        await queue.enqueue(
+            document.id, current, kind="reindex", max_attempts=settings.job_max_attempts
+        )
+    await session.commit()
+    return ReindexResult(index_version=current, queued=len(stale))
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut, tags=["documents"])
@@ -242,13 +308,10 @@ async def delete_conversation(
     return Response(status_code=204)
 
 
-@router.post("/chat", response_model=ChatResponse, tags=["chat"])
-async def chat(
-    body: ChatRequest,
-    session: Session,
-    settings: Config,
-    provider: Provider,
-) -> ChatResponse:
+async def prepare_chat(
+    body: ChatRequest, session: AsyncSession, settings: Settings, provider: AIProvider
+) -> tuple[str, RAGPipeline, RetrievalFilters | None, list[HistoryTurn]]:
+    """Checks, locking and pipeline construction shared by /chat and /chat/stream."""
     repo = CatalogRepository(session)
     await repo.conversation(body.workspace_id, body.conversation_id)
     if body.document_ids:
@@ -259,30 +322,131 @@ async def chat(
         select(Conversation).where(Conversation.id == body.conversation_id).with_for_update()
     )
     question = body.question[: settings.max_question_chars]
-    result = await RAGPipeline(
-        VectorRetriever(
+    filters = (
+        RetrievalFilters(
+            file_types=body.filters.file_types,
+            page_from=body.filters.page_from,
+            page_to=body.filters.page_to,
+        )
+        if body.filters
+        else None
+    )
+    history: list[HistoryTurn] = []
+    if settings.query_planning and settings.history_messages:
+        recent = await session.scalars(
+            select(Message)
+            .where(Message.conversation_id == body.conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(settings.history_messages)
+        )
+        history = [HistoryTurn(m.role, m.content) for m in reversed(list(recent))]
+    pipeline = RAGPipeline(
+        build_retriever(
             session, EmbeddingService(provider, settings.embedding_dimensions), settings
         ),
         provider,
         settings,
-    ).answer(body.workspace_id, question, body.document_ids)
+        (
+            QueryPlanner(provider, settings.history_messages, settings.query_decomposition)
+            if settings.query_planning
+            else None
+        ),
+    )
+    return question, pipeline, filters, history
+
+
+async def save_exchange(
+    session: AsyncSession, conversation_id: UUID, question: str, result: ChatResponse
+) -> None:
     user_created_at = datetime.now(UTC)
-    user_message = Message(
-        conversation_id=body.conversation_id,
-        role="user",
-        content=question,
-        created_at=user_created_at,
+    session.add(
+        Message(
+            conversation_id=conversation_id,
+            role="user",
+            content=question,
+            created_at=user_created_at,
+        )
     )
-    session.add(user_message)
     await session.flush()
-    assistant = Message(
-        conversation_id=body.conversation_id,
-        role="assistant",
-        content=result.answer,
-        citations=[c.model_dump(mode="json") for c in result.citations],
-        # Keep the pair ordered even if the host clock has coarse resolution.
-        created_at=max(datetime.now(UTC), user_created_at + timedelta(microseconds=1)),
+    session.add(
+        Message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=result.answer,
+            citations=[c.model_dump(mode="json") for c in result.citations],
+            sentences=[x.model_dump(mode="json") for x in result.sentences],
+            # Keep the pair ordered even if the host clock has coarse resolution.
+            created_at=max(datetime.now(UTC), user_created_at + timedelta(microseconds=1)),
+        )
     )
-    session.add(assistant)
     await session.commit()
+
+
+@router.post("/chat", response_model=ChatResponse, tags=["chat"])
+async def chat(
+    body: ChatRequest,
+    session: Session,
+    settings: Config,
+    provider: Provider,
+) -> ChatResponse:
+    question, pipeline, filters, history = await prepare_chat(body, session, settings, provider)
+    trace = Trace()
+    with bind_trace(trace), trace.stage("total"):
+        result = await pipeline.answer(
+            body.workspace_id, question, body.document_ids, filters, history
+        )
+    # Ids, scores, timings and token counts only: no question or document text.
+    logger.info("rag_trace", extra={"trace": trace.to_dict()})
+    await save_exchange(session, body.conversation_id, question, result)
     return result
+
+
+def sse(event: str, data: object) -> str:
+    payload = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@router.post(
+    "/chat/stream",
+    tags=["chat"],
+    response_class=StreamingResponse,
+    description=(
+        "Server-Sent Events. 'stage' reports progress, 'delta' carries provisional answer text "
+        "that is not yet validated, 'final' carries the validated answer (same shape as /chat) "
+        "and 'error' a safe error. The exchange is saved only after a successful final event."
+    ),
+)
+async def chat_stream(
+    body: ChatRequest,
+    session: Session,
+    settings: Config,
+    provider: Provider,
+) -> StreamingResponse:
+    # Validation errors (unknown conversation or document) still return normal HTTP errors.
+    question, pipeline, filters, history = await prepare_chat(body, session, settings, provider)
+
+    async def events() -> AsyncIterator[str]:
+        trace = Trace()
+        try:
+            with bind_trace(trace), trace.stage("total"):
+                async for item in pipeline.answer_stream(
+                    body.workspace_id, question, body.document_ids, filters, history
+                ):
+                    if item.event == "final" and isinstance(item.data, ChatResponse):
+                        await save_exchange(session, body.conversation_id, question, item.data)
+                    yield sse(item.event, item.data)
+        except AppError as exc:
+            await session.rollback()
+            yield sse("error", {"code": exc.code, "message": exc.message})
+        except Exception:
+            await session.rollback()
+            logger.exception("chat_stream_failed")
+            yield sse("error", {"code": "internal_error", "message": "Answering failed."})
+        finally:
+            logger.info("rag_trace", extra={"trace": trace.to_dict()})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
