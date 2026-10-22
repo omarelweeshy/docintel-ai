@@ -14,6 +14,14 @@ dependencies = [
 ]
 [dependency-groups]
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1", "mypy>=1.15,<2"]
+# Optional CPU models (rerankers, claim verifiers): uv sync --group ml
+ml = ["torch>=2.8,<3", "transformers>=4.56,<5"]
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 [tool.setuptools.packages.find]
 include = ["app*"]
 [tool.ruff]
@@ -28,7 +36,7 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "pymupdf.*"]
+module = ["pgvector.*", "pymupdf.*", "torch.*", "transformers.*"]
 ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

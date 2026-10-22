@@ -4,6 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never \
     PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
+# Tesseract OCR for PDF pages without a text layer (used through PyMuPDF, no Python package).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 # Dependencies first so code changes reuse the cached layer. uv.lock is the single source of truth.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project

@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import replace
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from app.rag.retrieval import Source
 from app.retrieval.filters import RetrievalFilters
 from app.retrieval.fusion import reciprocal_rank_fusion
 from app.retrieval.keyword import TextConfig, keyword_search
+from app.retrieval.rerank import get_reranker, rerank_order
 from app.retrieval.vector import vector_search
 from app.services.embeddings import EmbeddingService
 
@@ -81,6 +83,8 @@ class HybridRetriever:
         by_id = {
             chunk.id: (chunk, filename) for rows in lists.values() for chunk, filename, _ in rows
         }
+        if self.settings.reranker != "none" and fused:
+            fused = await self._rerank(question, fused, by_id)
         if (trace := current_trace()) is not None:
             for name, rows in lists.items():
                 trace.candidates[name] = [
@@ -96,3 +100,24 @@ class HybridRetriever:
             for chunk_id, score in fused[: self.settings.top_k]
             for chunk, filename in [by_id[chunk_id]]
         ]
+
+    async def _rerank(
+        self,
+        question: str,
+        fused: list[tuple[UUID, float]],
+        by_id: dict[UUID, tuple[DocumentChunk, str]],
+    ) -> list[tuple[UUID, float]]:
+        """Reorder the first `rerank_candidates` fused chunks with the configured cross-encoder.
+        Chunks below that depth keep their fused order after the reranked ones."""
+        head = fused[: self.settings.rerank_candidates]
+        passages = [by_id[chunk_id][0].text for chunk_id, _ in head]
+        with traced_stage("rerank"):
+            reranker = await asyncio.to_thread(get_reranker, self.settings.reranker)
+            order = await asyncio.to_thread(rerank_order, reranker, question, passages)
+        reranked = [head[i] for i in order] + fused[len(head) :]
+        if (trace := current_trace()) is not None:
+            trace.candidates["reranked"] = [
+                Candidate(str(chunk_id), rank, round(score, 5))
+                for rank, (chunk_id, score) in enumerate(reranked[: self.settings.top_k], 1)
+            ]
+        return reranked

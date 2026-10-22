@@ -43,6 +43,7 @@ services:
       QUERY_PLANNING: ${QUERY_PLANNING:-true}
       CHUNKING: ${CHUNKING:-words}
       ANSWER_FORMAT: ${ANSWER_FORMAT:-answer}
+      OCR_ENGINE: ${OCR_ENGINE:-tesseract}
       # The worker service below processes uploads; the API only queues them.
       INGESTION_MODE: ${INGESTION_MODE:-queue}
     volumes:
