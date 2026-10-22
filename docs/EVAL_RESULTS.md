@@ -328,6 +328,11 @@ Retrieval on the dev split (43 answerable turns), on top of row 5:
 gte with 20 candidates, paired against no reranker: recall@5 +0.081 [+0.023, +0.163], MRR +0.115
 [+0.028, +0.210]. Real chunks (up to 350 words) made it about twice as slow as the load test.
 
+These runs used transformers 4.57.6. The `ml` group now requires transformers 5.10 or later,
+because 4.x has four high-severity advisories. A re-check of the load test under 5.20.2 (models
+pinned to fp32) gave the same scores, with gte at 7.4 s and Qwen3 at 61 s per question; the
+evaluation runs were not repeated.
+
 What did not finish: the bge-m3 dev run stopped with "The paging file is too small" (Windows error
 1455) while loading next to the two Ollama runners, and the full answer run of gte on the test
 split crashed after 36 of 123 turns with the machine out of memory (other desktop applications

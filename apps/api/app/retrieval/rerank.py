@@ -28,7 +28,9 @@ QWEN3_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 
 
 class Reranker(Protocol):
-    def score(self, query: str, passages: Sequence[str]) -> list[float]: ...
+    def score(self, query: str, passages: Sequence[str]) -> list[float]:
+        """Relevance score for each passage; higher means more relevant."""
+        raise NotImplementedError
 
 
 class CrossEncoderReranker:
@@ -40,7 +42,9 @@ class CrossEncoderReranker:
 
         self.torch = torch
         self.tokenizer = AutoTokenizer.from_pretrained(repo)  # type: ignore[no-untyped-call, unused-ignore]
-        self.model = AutoModelForSequenceClassification.from_pretrained(repo).eval()
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            repo, dtype=torch.float32
+        ).eval()
         self.max_length = max_length
         self.batch_size = batch_size
         self.lock = threading.Lock()
@@ -72,7 +76,7 @@ class Qwen3Reranker:
 
         self.torch = torch
         self.tokenizer = AutoTokenizer.from_pretrained(repo, padding_side="left")  # type: ignore[no-untyped-call, unused-ignore]
-        self.model = AutoModelForCausalLM.from_pretrained(repo).eval()  # type: ignore[no-untyped-call, unused-ignore]
+        self.model = AutoModelForCausalLM.from_pretrained(repo, dtype=torch.float32).eval()  # type: ignore[no-untyped-call, unused-ignore]
         self.yes = self.tokenizer.convert_tokens_to_ids("yes")
         self.no = self.tokenizer.convert_tokens_to_ids("no")
         self.prefix = self.tokenizer.encode(QWEN3_PREFIX, add_special_tokens=False)

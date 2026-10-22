@@ -15,7 +15,7 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1", "mypy>=1.15,<2"]
 # Optional CPU models (rerankers, claim verifiers): uv sync --group ml
-ml = ["torch>=2.8,<3", "transformers>=4.56,<5"]
+ml = ["torch>=2.8,<3", "transformers>=5.10,<6"]
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu" }]
 [[tool.uv.index]]
