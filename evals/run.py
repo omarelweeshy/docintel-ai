@@ -76,6 +76,8 @@ ORIGINAL: dict[str, Any] = {
     "query_decomposition": False,
     "chunking": "words",
     "answer_format": "answer",
+    "ocr_engine": "none",
+    "reranker": "none",
 }
 
 
@@ -117,11 +119,14 @@ class Baseline(System):
 
     def index_key(self) -> str:
         s = self.settings
+        ocr = "" if s.ocr_engine == "none" else f"|ocr-{s.ocr_engine}"
         if s.chunking == "structure":
-            return f"structure_v1-{s.chunk_target_words}|{s.embedding_model}"
+            return f"structure_v1-{s.chunk_target_words}|{s.embedding_model}{ocr}"
         if s.chunking == "words_tables":
-            return f"words_tables_v1-{s.chunk_words}-{s.chunk_overlap}|{s.embedding_model}"
-        return f"words{s.chunk_words}-{s.chunk_overlap}-{s.max_chunk_chars}|{s.embedding_model}"
+            return f"words_tables_v1-{s.chunk_words}-{s.chunk_overlap}|{s.embedding_model}{ocr}"
+        return (
+            f"words{s.chunk_words}-{s.chunk_overlap}-{s.max_chunk_chars}|{s.embedding_model}{ocr}"
+        )
 
     async def ingest(self, session: Any, workspace_id: UUID, name: str, data: bytes) -> Any:
         from starlette.datastructures import Headers, UploadFile
@@ -276,6 +281,20 @@ class HybridRewrite(Hybrid):
     overrides = {**Hybrid.overrides, "query_planning": True}
 
 
+class TesseractOCR(HybridRewrite):
+    """Row 5: Tesseract OCR for pages without a text layer, on top of the shipped row 2 stack."""
+
+    name = "ocr-tesseract"
+    overrides = {**HybridRewrite.overrides, "ocr_engine": "tesseract"}
+
+
+class Rerank(HybridRewrite):
+    """Row 6: CPU cross-encoder reranking on top of row 5 (model: --set reranker=...)."""
+
+    name = "rerank"
+    overrides = {**TesseractOCR.overrides, "reranker": "gte-modernbert"}
+
+
 class Structure(HybridRewrite):
     """Row 3: structure-aware chunks (headings, table rows, page-bounded) on top of row 2."""
 
@@ -319,6 +338,8 @@ SYSTEMS: dict[str, Callable[..., System]] = {
     "keyword": KeywordOnly,
     "hybrid-planned": HybridPlanned,
     "hybrid-rewrite": HybridRewrite,
+    "ocr-tesseract": TesseractOCR,
+    "rerank": Rerank,
     "structure": Structure,
     "sentences": Sentences,
     "words-tables": WordsTables,

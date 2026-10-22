@@ -1,0 +1,106 @@
+{
+  "docs": [
+    {
+      "doc": "nist-sp-800-61r3.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 61,
+      "pages": 48,
+      "seconds": 12.19
+    },
+    {
+      "doc": "nist-cswp-29-csf-2.0.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 40,
+      "pages": 32,
+      "seconds": 2.86
+    },
+    {
+      "doc": "nist-sp-800-40r4.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 46,
+      "pages": 28,
+      "seconds": 3.27
+    },
+    {
+      "doc": "nist-sp-800-63b-4.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 194,
+      "pages": 129,
+      "seconds": 15.28
+    },
+    {
+      "doc": "cisa-stopransomware-guide.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 51,
+      "pages": 31,
+      "seconds": 3.52
+    },
+    {
+      "doc": "halvorsen-records-retention-schedule.docx",
+      "status": "ready",
+      "error": null,
+      "chunks": 2,
+      "pages": null,
+      "seconds": 0.2
+    },
+    {
+      "doc": "corvid-oncall-runbook.txt",
+      "status": "ready",
+      "error": null,
+      "chunks": 2,
+      "pages": null,
+      "seconds": 0.16
+    },
+    {
+      "doc": "scan-kestrel-incident-memo.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 2,
+      "pages": 2,
+      "seconds": 2.92
+    },
+    {
+      "doc": "scan-ashford-hosting-sla.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 2,
+      "pages": 2,
+      "seconds": 2.05
+    },
+    {
+      "doc": "northstar-incident-response-handbook.pdf",
+      "status": "ready",
+      "error": null,
+      "chunks": 3,
+      "pages": 3,
+      "seconds": 0.27
+    },
+    {
+      "doc": "asteron-vendor-access-standard.docx",
+      "status": "ready",
+      "error": null,
+      "chunks": 1,
+      "pages": null,
+      "seconds": 0.16
+    },
+    {
+      "doc": "meridian-data-export-policy.txt",
+      "status": "ready",
+      "error": null,
+      "chunks": 1,
+      "pages": null,
+      "seconds": 0.12
+    }
+  ],
+  "gpu": {
+    "samples": 4,
+    "min_mib": 5942,
+    "p50_mib": 5942,
+    "peak_mib": 5942
+  }
+}

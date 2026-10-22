@@ -15,6 +15,7 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.ingest.chunking import StructureChunker, table_chunks
 from app.ingest.jobs import JobQueue
+from app.ingest.ocr import ocr_provider
 from app.ingest.structure import parse_blocks
 from app.models.entities import Document, DocumentChunk, IngestJob
 from app.rag.chunking import Chunk, Chunker
@@ -45,18 +46,21 @@ def split_document(
     data: bytes, extension: str, chunker: Chunker, settings: Settings
 ) -> tuple[list[Chunk], int | None]:
     """Parse and chunk with the configured strategy. Runs in a worker thread (CPU-bound)."""
+    ocr = ocr_provider(settings.ocr_engine, settings.ocr_tessdata)
     if settings.chunking == "structure":
         blocks, page_count = parse_blocks(
-            data, extension, settings.max_document_chars, settings.max_pages
+            data, extension, settings.max_document_chars, settings.max_pages, ocr
         )
         target = settings.chunk_target_words
         chunker_ = StructureChunker(target, max_words=max(300, target * 3 // 2))
         return chunker_.split(blocks), page_count
-    parsed = parse_document(data, extension, settings.max_document_chars, settings.max_pages)
+    parsed = parse_document(data, extension, settings.max_document_chars, settings.max_pages, ocr)
     chunks = chunker.split(parsed.pages)
     if settings.chunking == "words_tables":
         # Keep the word windows and add every detected table as extra row-based chunks.
-        blocks, _ = parse_blocks(data, extension, settings.max_document_chars, settings.max_pages)
+        blocks, _ = parse_blocks(
+            data, extension, settings.max_document_chars, settings.max_pages, ocr
+        )
         chunks += table_chunks(blocks, start_index=len(chunks))
     return chunks, parsed.page_count
 

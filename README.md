@@ -17,9 +17,11 @@ Retrieval and answering changes are measured against a 157-case evaluation set b
 - **Durable ingestion**: a job table and worker with leases, retries, crash recovery, progress and reindexing (`INGESTION_MODE=queue`, the Compose default).
 - Per-request traces (stage timings, tokens, model load time, retrieval candidates) without question or document text.
 - An evaluation harness with 157 cases (single fact, tables, scanned pages, multi-hop, unanswerable, prompt injection, conversations) and an ablation table with confidence intervals.
+- **OCR** for scanned PDF pages with Tesseract (on by default when Tesseract is installed; the Docker image includes it).
+- An optional CPU **reranker** (`RERANKER`, off by default: it improved retrieval but more than tripled answer time on a laptop CPU).
 - Local Ollama by default; the OpenAI adapter still works.
 
-Not implemented: OCR for scanned PDFs, a reranker and an NLI claim verifier (each needs a model download that has not been approved yet), authentication, and cloud deployment.
+Not implemented: an NLI claim verifier, authentication, and cloud deployment.
 
 ## Measured quality (test split, local models)
 
@@ -31,9 +33,10 @@ Not implemented: OCR for scanned PDFs, a reranker and an NLI claim verifier (eac
 | + structure chunking | 0.69 | 0.69 | not kept: tables up, prose down |
 | + table-row chunks | 0.76 | 0.75 | not kept yet: table gain interval touches zero |
 | + sentence citations | 0.72 | 0.75 | opt-in: fewer explicit abstentions |
+| + Tesseract OCR | 0.88 | 0.87 | kept: scanned questions 0 to 0.82 |
 
-The last three rows are each added to the follow-up rewriting row, not to each other. 108 answerable test turns; 95% intervals, per-type results, latency and memory are in
-[EVAL_RESULTS](docs/EVAL_RESULTS.md). Scanned-page questions still score 0 (no OCR). Measured on an
+The last four rows are each added to the follow-up rewriting row, not to each other. 108 answerable test turns; 95% intervals, per-type results, latency and memory are in
+[EVAL_RESULTS](docs/EVAL_RESULTS.md). Measured on an
 RTX 3060 Laptop GPU (6 GB) with `qwen3.5:4b` and `qwen3-embedding:0.6b`: warm answers take about
 4.6 s at the median, of which retrieval is about 0.2 s.
 
@@ -282,10 +285,10 @@ Uploads return **201** for a created record; inspect `status` even on success. P
 ## Current limitations
 
 - Workspace IDs scope data but do not authenticate or authorize callers.
-- Scanned or image-only PDF pages fail with "OCR is required".
+- OCR returns plain text without layout, so tables on scanned pages lose their structure; English only.
 - The default parser still garbles some PDF tables; the structure-aware options exist but did not pass the evaluation's keep rule.
 - Sentence support checks are lexical: they catch missing numbers, not paraphrased contradictions. Their error rate against human review is not measured yet.
-- The model sometimes answers an unanswerable question with a neighbouring fact (4 of 20 unanswerable cases in the default configuration).
+- The model sometimes answers an unanswerable question with a neighbouring fact (5 of 20 unanswerable cases in the default configuration; one of them about a scanned document that OCR made readable).
 - PostgreSQL's built-in full-text ranking has no inverse document frequency (rare words do not weigh more).
 - Original/index deletion keeps historical answers and citation snapshots; delete conversations separately.
 - No malware scanning, quotas, rate limiting, parser sandbox or retention policy.
@@ -293,4 +296,4 @@ Uploads return **201** for a created record; inspect `status` even on success. P
 
 ## Roadmap
 
-See [ROADMAP](docs/ROADMAP.md). Next candidates, each to be measured on the evaluation set: OCR and a CPU reranker (model downloads pending approval), an NLI claim verifier, table-row chunks with more table questions, then authentication and deployment. Agents belong in a later justified workflow, not this MVP.
+See [ROADMAP](docs/ROADMAP.md). Next candidates, each to be measured on the evaluation set: an NLI claim verifier aimed at unanswerable questions, the reranker's effect on answers on a machine with more memory, table-row chunks with more table questions, then authentication and deployment. Agents belong in a later justified workflow, not this MVP.

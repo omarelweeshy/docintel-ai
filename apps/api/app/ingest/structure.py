@@ -3,7 +3,8 @@
 PDF uses PyMuPDF's own layout information (no extra models): table detection, text direction
 (vertical watermarks are dropped), font size and weight (headings), and the content-stream block
 order (which keeps two-column pages in column order). Running page headers and footers that repeat
-across pages are removed. Pages without a text layer still need OCR and raise ParseError.
+across pages are removed. Pages without a text layer go to the OCR provider when one is
+configured, and raise ParseError otherwise.
 """
 
 import io
@@ -17,7 +18,7 @@ import pymupdf
 from docx import Document as DocxDocument
 
 from app.core.errors import ParseError
-from app.services.parsing import normalize_text
+from app.services.parsing import OCRProvider, normalize_text
 
 BlockKind = Literal["heading", "text", "table_row"]
 
@@ -131,7 +132,9 @@ def _running_text(text: str) -> str:
     return re.sub(r"\d+", "#", text.casefold()).strip()
 
 
-def pdf_blocks(data: bytes, max_pages: int) -> tuple[list[Block], int]:
+def pdf_blocks(
+    data: bytes, max_pages: int, ocr: OCRProvider | None = None
+) -> tuple[list[Block], int]:
     with pymupdf.open(stream=data, filetype="pdf") as pdf:  # type: ignore[no-untyped-call]
         if pdf.needs_pass:
             raise ParseError("Password-protected PDFs are not supported.")
@@ -139,6 +142,7 @@ def pdf_blocks(data: bytes, max_pages: int) -> tuple[list[Block], int]:
         if count > max_pages:
             raise ParseError("PDF exceeds the configured page limit.")
         pages: list[tuple[int, Any, list[tuple[Any, list[str]]], float]] = []
+        ocr_pages: dict[int, str] = {}
         sizes: Counter[float] = Counter()
         margin_text: Counter[str] = Counter()
         for index, page in enumerate(pdf):
@@ -150,13 +154,17 @@ def pdf_blocks(data: bytes, max_pages: int) -> tuple[list[Block], int]:
                         tables.append((pymupdf.Rect(table.bbox), rendered))  # type: ignore[no-untyped-call]
             except Exception:  # noqa: BLE001 - table detection is best effort
                 tables = []
-            layout = page.get_text("dict")
             height = float(page.rect.height)
             if not page.get_text().strip():
-                raise ParseError(
-                    f"Page {index + 1} has no extractable text. OCR is required "
-                    "(blank pages must also be removed in V1)."
-                )
+                if ocr is None:
+                    raise ParseError(
+                        f"Page {index + 1} has no extractable text. OCR is required "
+                        "(blank pages must also be removed in V1)."
+                    )
+                ocr_pages[index + 1] = ocr.extract_page(data, index + 1)
+                pages.append((index + 1, {"blocks": []}, [], height))
+                continue
+            layout = page.get_text("dict")
             for block in layout["blocks"]:
                 for line in block.get("lines", []):
                     for span in line["spans"]:
@@ -175,6 +183,13 @@ def pdf_blocks(data: bytes, max_pages: int) -> tuple[list[Block], int]:
         running = {t for t, n in margin_text.items() if n >= max(3, count * 0.3)}
         blocks: list[Block] = []
         for number, layout, tables, height in pages:
+            if number in ocr_pages:
+                # OCR text has no layout information: one text block per paragraph.
+                for paragraph in re.split(r"\n\s*\n", ocr_pages[number]):
+                    text = normalize_text(paragraph)
+                    if text:
+                        blocks.append(Block("text", text, number))
+                continue
             placed = set()
             for block in layout["blocks"]:
                 if block["type"] != 0:
@@ -280,11 +295,15 @@ def txt_blocks(text: str) -> list[Block]:
 
 
 def parse_blocks(
-    data: bytes, extension: str, max_chars: int, max_pages: int
+    data: bytes,
+    extension: str,
+    max_chars: int,
+    max_pages: int,
+    ocr: OCRProvider | None = None,
 ) -> tuple[list[Block], int | None]:
     try:
         if extension == ".pdf":
-            blocks, count = pdf_blocks(data, max_pages)
+            blocks, count = pdf_blocks(data, max_pages, ocr)
         elif extension == ".docx":
             blocks, count = docx_blocks(data), None
         elif extension == ".txt":

@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # "inline": parse and embed during the upload request (original). "queue": the upload returns
     # 202 and a worker process (python -m app.worker) ingests from the durable job table.
     ingestion_mode: Literal["inline", "queue"] = "inline"
+    # OCR for PDF pages without a text layer. "tesseract" uses an installed Tesseract through
+    # PyMuPDF; when Tesseract is not found such pages still fail with "OCR is required".
+    ocr_engine: Literal["none", "tesseract"] = "tesseract"
+    ocr_tessdata: str | None = None
     job_max_attempts: int = Field(default=3, ge=1, le=10)
     job_lease_seconds: float = Field(default=120, ge=10, le=3600)
     worker_poll_seconds: float = Field(default=2, gt=0, le=60)
@@ -46,6 +50,10 @@ class Settings(BaseSettings):
     # Extra keyword list for identifier-like tokens ("800-61r3", "HC-412"). Off: it did not help
     # on the dev split (docs/EVAL_RESULTS.md, row 1 tuning).
     identifier_search: bool = False
+    # Cross-encoder reranking of the first `rerank_candidates` fused chunks on the CPU
+    # (app/retrieval/rerank.py; needs `uv sync --group ml`). "none" keeps the fused order.
+    reranker: Literal["none", "gte-modernbert", "bge-m3", "qwen3-0.6b"] = "none"
+    rerank_candidates: int = Field(default=20, ge=1, le=100)
     # Retrievers return this many ranked chunks; the generator sees the first top_k. A deeper list
     # lets multi-query fusion and evaluation work on the same ranking the API uses.
     retrieval_depth: int = Field(default=20, ge=1, le=100)

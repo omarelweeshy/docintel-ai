@@ -43,10 +43,12 @@ Each row adds one change to the row it is compared with. Means over 108 answerab
 | 3 + structure chunking (on row 2) | 0.69 | 0.69 | 0.78 | 0.61 | 0.81 | 0.80 | 0.80 | 0.53 | 3.9 s | no |
 | 3b + table-row chunks (on row 2) | 0.76 | 0.75 | 0.83 | 0.63 | 0.86 | 0.67 | 0.87 | 0.58 | 4.4 s | no (interval touches 0) |
 | 4 + sentence citations (on row 2) | 0.72 | 0.75 | 0.83 | 0.63 | 0.82 | 0.47 | 0.73 | 0.58 | 4.5 s | no (opt-in) |
+| 5 + Tesseract OCR (on row 2) | 0.88 | 0.87 | 0.97 | 0.75 | 0.89 | 0.40 | 0.80 | 0.95 | 4.6 s | yes |
 
-Scanned-document questions score 0 in every row (no OCR). Injection safety is 11 of 11 in every
-row. No reranker, OCR or NLI verifier row exists yet: each needs a model download that has not
-been approved.
+Scanned-document questions score 0 in rows 0 to 4 (no OCR) and 0.82 in row 5. Injection safety is
+11 of 11 in every row. A CPU reranker was measured on top of row 5 (retrieval on the dev split
+only, see "Reranker"); it is not a row here because its full answer run on the test split could
+not finish on this machine. No NLI verifier has been measured.
 
 ## Row 0: baseline (pipeline on origin/main)
 
@@ -269,6 +271,75 @@ a sentence instead of setting `insufficient_context`, so the API abstains less o
 "abstains or declines" rate is unchanged). Correctness moved slightly down within noise.
 **Off by default** (`ANSWER_FORMAT=sentences` to enable) until the abstention prompt is fixed and
 measured again.
+
+## Row 5: + Tesseract OCR
+
+Run: `evals/runs/20261020T202446Z-ocr-tesseract` (row 2 settings plus `OCR_ENGINE=tesseract`).
+Pages with no text layer are rendered at 300 dpi and read by Tesseract 5 through PyMuPDF
+(`app/ingest/ocr.py`); lines with fewer than three letters or digits and no digit are dropped as
+scanner noise. Pages that have a text layer are not touched.
+
+| Test, paired against row 2 (n=108 unless noted) | Row 2 | Row 5 | Difference [95% CI] |
+|---|---|---|---|
+| Correct | 0.74 | 0.88 | +0.139 [+0.056, +0.222] |
+| Recall@5 | 0.74 | 0.87 | +0.127 [+0.056, +0.201] |
+| Recall@20 | 0.83 | 0.97 | +0.144 [+0.079, +0.213] |
+| MRR | 0.62 | 0.75 | +0.122 [+0.063, +0.185] |
+| Abstains (flag) on absent answers, n=15 | 0.67 | 0.40 | -0.267 [-0.533, 0.000] |
+| Abstains or declines in text, n=15 | 0.73 | 0.67 | -0.067 [-0.267, +0.133] |
+
+By type: scanned 0.00 to 0.82 correct (11 test turns; recall@5 0.91). Conversation turns 0.58 to
+0.95: five of the seven changed turns are about the two scanned documents (cv-005, cv-009), the
+other two (cv-002) changed because new chunks entered the fused ranking. Ingesting the two scanned
+PDFs took 2.9 s and 2.0 s.
+
+What it costs. On absent answers the flag rate dropped from 10 to 6 of 15, but four of those four
+turns still decline in the text ("the provided documents do not contain..."), so the stricter
+"abstains or declines" measure lost one case. That case is new and real: un-008 asks for Ashford's
+CDN uptime, which the SLA does not give, and the model now answers with the Compute uptime (99.9%)
+from the scan it can finally read. un-009 is borderline (says the contractor is not named, then
+describes the account). **On by default**: it adds a missing capability and its target metric is
+above zero, and the abstention change is within its interval.
+
+## Reranker (CPU cross-encoder)
+
+Three Apache-2.0 rerankers were downloaded to the local Hugging Face cache and run on the CPU
+(`app/retrieval/rerank.py`, torch 2.14.1 CPU, 6 threads), reordering the first 20 fused chunks.
+They were kept off the GPU on purpose: the generator and embedder already peak at 5,924 of 6,144
+MiB while answering.
+
+Load test (20 synthetic passages of about 200 tokens, one question):
+
+| Model | Size on disk | Extra RAM | Time per question |
+|---|---|---|---|
+| Alibaba-NLP/gte-reranker-modernbert-base | 598 MB | 0.8 GB | 6.2 s |
+| BAAI/bge-reranker-v2-m3 | 2.27 GB | 1.8 GB | 15.0 s |
+| Qwen/Qwen3-Reranker-0.6B | 1.19 GB | 4.3 GB | 42.3 s |
+| gte-modernbert, published int8 ONNX export (onnxruntime) | 151 MB | 0.7 GB | 13.9 s (slower; dropped) |
+
+Retrieval on the dev split (43 answerable turns), on top of row 5:
+
+| Variant | Recall@5 | Recall@20 | MRR | Rerank time p50 / p95 |
+|---|---|---|---|---|
+| No reranker (row 5) | 0.80 | 0.90 | 0.72 | |
+| gte-modernbert, 20 candidates | 0.88 | 0.92 | 0.84 | 11.5 s / 13.2 s |
+| gte-modernbert, 10 candidates | 0.85 | 0.92 | 0.84 | 6.5 s / 8.1 s |
+
+gte with 20 candidates, paired against no reranker: recall@5 +0.081 [+0.023, +0.163], MRR +0.115
+[+0.028, +0.210]. Real chunks (up to 350 words) made it about twice as slow as the load test.
+
+These runs used transformers 4.57.6. The `ml` group now requires transformers 5.10 or later,
+because 4.x has four high-severity advisories. A re-check of the load test under 5.20.2 (models
+pinned to fp32) gave the same scores, with gte at 7.4 s and Qwen3 at 61 s per question; the
+evaluation runs were not repeated.
+
+What did not finish: the bge-m3 dev run stopped with "The paging file is too small" (Windows error
+1455) while loading next to the two Ollama runners, and the full answer run of gte on the test
+split crashed after 36 of 123 turns with the machine out of memory (other desktop applications
+were open). Qwen3 was not run on the evaluation set because of its load-test latency. So the
+reranker has no measured effect on answer correctness. **Off by default** (`RERANKER=gte-modernbert`
+with `uv sync --group ml` to enable): it more than triples answer latency (4.6 s to about 16 s) on
+this laptop, and its benefit on answers is unmeasured.
 
 ## Scorer corrections after audit
 

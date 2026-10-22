@@ -224,3 +224,24 @@ larger scored dataset remains necessary before claiming measured RAG quality.
 **Why:** Ollama 0.34.4's llama-server keeps up to 8 GiB of prompt state in host RAM by default (about 143 MiB per question here). On a 16 GB laptop the first full eval crashed with `std::bad_alloc` after about 12 questions. Disabling it costs little because questions rarely share prompt prefixes.
 
 **Tradeoffs:** Users running the stock Ollama on small machines may hit the same crash; the README notes the setting.
+
+## 23. OCR with Tesseract through PyMuPDF, on by default
+
+**Decision:** PDF pages without a text layer are rendered at 300 dpi and read by an installed Tesseract 5 (`OCR_ENGINE=tesseract`, the default). The API image installs `tesseract-ocr` and `tesseract-ocr-eng`. Without Tesseract such pages still fail with "OCR is required".
+
+**Why:** Scanned questions scored 0. On the test split OCR raised correctness from 0.74 to 0.88 (+0.139 [+0.056, +0.222]) and scanned questions to 0.82, with no new Python dependency or model download: PyMuPDF already calls Tesseract.
+
+**Alternatives:** Docling with RapidOCR or EasyOCR (layout and table models, about 2 to 3 GB of packages and models; not measured), cloud OCR.
+
+**Tradeoffs:** Tesseract gives text without layout, so scanned tables become plain lines. English language data only. One unanswerable question is now answered with a nearby fact from a scan that was unreadable before (un-008).
+
+## 24. CPU reranker available, off by default
+
+**Decision:** `RERANKER` can reorder the first `RERANK_CANDIDATES` fused chunks with a cross-encoder on the CPU (gte-modernbert-base, bge-reranker-v2-m3 or Qwen3-Reranker-0.6B). The default is `none`. torch and transformers are in an optional `ml` dependency group, not in the API image.
+
+**Why:** gte-modernbert improved dev-split recall@5 by +0.08 [+0.02, +0.16], but added 11.5 s per question (p50) on this laptop's CPU, and its full answer run could not finish within 16 GB of RAM next to Ollama. The two larger models were slower still (15 s and 42 s per question in the load test).
+
+**Alternatives:** Running the reranker on the GPU, which would compete with the generator for the 6 GB card; a hosted rerank API; an int8 ONNX export (measured slower here).
+
+**Tradeoffs:** The effect on answer correctness is unmeasured. On a machine with more RAM or a larger GPU it is the next thing to measure.
+

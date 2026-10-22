@@ -63,7 +63,7 @@ Database deletion cascades chunks and jobs, then removes the original file. Data
 
 Structure chunking fixed table extraction (for example the SP 800-40r4 matrix row that the page-text parser garbled) but lowered recall on prose questions in the test split, so it is not the default. See docs/EVAL_RESULTS.md for each strategy's measured effect.
 
-Scanned pages with no text layer still fail with "OCR is required". OCR needs a model download that has not been approved yet.
+Pages with no text layer are read by Tesseract OCR through PyMuPDF (`app/ingest/ocr.py`, `OCR_ENGINE`). Without Tesseract installed they fail with "OCR is required".
 
 ## Retrieval
 
@@ -91,8 +91,8 @@ User/assistant pairs commit together after a successful answer; a row lock seria
 ## Extension points
 
 - GenerationProvider: `generate`, `generate_structured`, optional `generate_stream`.
-- Retriever protocol: vector, hybrid, future reranker stage between fusion and generation.
-- Parsing: `parse_blocks` is the place for an OCR or Docling adapter (`OCRProvider` protocol unchanged).
+- Retriever protocol: vector, hybrid, optional reranker stage between fusion and generation (`app/retrieval/rerank.py`).
+- Parsing: `OCRProvider` (Tesseract in `app/ingest/ocr.py`); `parse_blocks` is the place for a Docling adapter.
 - Support check: `app/answer/citations.check_support` is the place for an NLI verifier.
 - FileStorage, identity and authorization as before.
 
