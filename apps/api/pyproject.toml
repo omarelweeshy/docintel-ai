@@ -8,8 +8,8 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "pydantic-settings>=2.7,<3",
-  "sqlalchemy[asyncio]>=2.0.38,<2.1", "asyncpg>=0.30,<1", "alembic>=1.14,<2",
-  "pgvector>=0.3.6,<1", "python-multipart>=0.0.20,<1", "pymupdf>=1.25,<2",
+  "sqlalchemy[asyncio]>=2.0.38,<2.1", "asyncpg>=0.32.0,<1", "alembic>=1.20.1,<2",
+  "pgvector>=0.5.1,<1", "python-multipart>=0.0.20,<1", "pymupdf>=1.25,<2",
   "python-docx>=1.1.2,<2", "openai>=1.68,<3", "httpx>=0.28,<1"
 ]
 [dependency-groups]
